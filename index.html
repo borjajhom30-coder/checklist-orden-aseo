@@ -4,6 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Checklist Orden y Aseo - Agrícola Guapa</title>
+<meta name="description" content="Checklist de orden y aseo de la planta empacadora, con fotos de evidencia y panel de seguimiento.">
+
+<!-- Vista previa al compartir el link (WhatsApp, Facebook, etc.) -->
+<meta property="og:title" content="Checklist Orden y Aseo - Agrícola Guapa">
+<meta property="og:description" content="Checklist de orden y aseo de la planta empacadora, con fotos de evidencia y panel de seguimiento.">
+<meta property="og:image" content="https://borjajhom30-coder.github.io/checklist-orden-aseo/og-image.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://borjajhom30-coder.github.io/checklist-orden-aseo/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Checklist Orden y Aseo - Agrícola Guapa">
+<meta name="twitter:description" content="Checklist de orden y aseo de la planta empacadora, con fotos de evidencia y panel de seguimiento.">
+<meta name="twitter:image" content="https://borjajhom30-coder.github.io/checklist-orden-aseo/og-image.png">
+
+<!-- Para que se pueda "instalar" como app en el celular -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1b5e20">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Checklist Guapa">
 <style>
   :root{
     --verde-oscuro:#1b5e20;
@@ -927,6 +949,14 @@ function mostrarDetalleZona(zona, registros){
    INICIO
    ============================================================ */
 render();
+
+// Registrar el Service Worker (necesario para que el navegador
+// ofrezca "Instalar aplicación" en el celular).
+if ("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(err => console.log("SW no registrado:", err));
+  });
+}
 </script>
 </body>
 </html>
