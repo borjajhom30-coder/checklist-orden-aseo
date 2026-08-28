@@ -141,6 +141,11 @@
   .dias-ok{background:var(--verde-claro); color:var(--verde-oscuro);}
   .dias-alerta{background:var(--rojo-claro); color:var(--rojo);}
   .foto-evidencia{width:100%; max-width:220px; border-radius:8px; margin-top:8px; display:block;}
+  .galeria-fotos{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;}
+  .galeria-fotos img{width:84px; height:84px; object-fit:cover; border-radius:8px; cursor:pointer;}
+  .etiqueta-fotos{font-size:11px; font-weight:700; color:var(--gris); text-transform:uppercase; margin-top:10px;}
+  .mini-thumb{width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0; cursor:pointer;}
+  .mini-thumb-vacio{background:#eee; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:default;}
 
   /* Panel */
   .stats-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;}
@@ -159,6 +164,7 @@
   .estado-pill{font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; white-space:nowrap;}
   .pill-ok{background:var(--verde-claro); color:var(--verde-oscuro);}
   .pill-pend{background:var(--rojo-claro); color:var(--rojo);}
+  .pill-vencido{background:#fff3e0; color:#e65100;}
   .pill-sin{background:#eee; color:var(--gris);}
 
   .cargando{text-align:center; color:var(--gris); padding:30px 0; font-size:13px;}
@@ -282,6 +288,10 @@ const ZONAS = [
   ]}
 ];
 
+// Si una zona lleva más de estos días sin un checklist nuevo (y no tiene nada
+// pendiente de limpiar), el Panel la marca como "Pendiente por revisar".
+const DIAS_LIMITE_REVISION = 2;
+
 const SUPERVISORES = [
   "Andrés Restrepo",
   "José Miguel Beltrán",
@@ -379,6 +389,41 @@ function diasDesde(iso){
   if (!iso) return null;
   const ms = Date.now() - new Date(iso).getTime();
   return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function parseFotos(str){
+  return (str || "").split(",").map(s => s.trim()).filter(Boolean);
+}
+
+function primeraFotoDeRegistro(r){
+  // Si ya se resolvio, prioriza la foto de "quedo limpio"; si no, la del reporte inicial.
+  if (r.Estado === "Cerrado"){
+    const fc = parseFotos(r.FotosCierre);
+    if (fc.length) return fc[0];
+  }
+  const fa = parseFotos(r.FotosApertura);
+  return fa.length ? fa[0] : null;
+}
+
+function renderGaleria(urls){
+  if (!urls || urls.length === 0) return "";
+  return `<div class="galeria-fotos">${urls.map(u => `<img src="${u}" data-foto="${u}">`).join("")}</div>`;
+}
+
+function activarGaleria(contenedor){
+  contenedor.querySelectorAll(".galeria-fotos img, .mini-thumb").forEach(img => {
+    if (!img.dataset.foto) return;
+    img.addEventListener("click", (e) => {
+      e.stopPropagation();
+      abrirFotoGrande(img.dataset.foto);
+    });
+  });
+}
+
+function abrirFotoGrande(src){
+  const fondo = el(`<div class="modal-fondo" style="align-items:center;z-index:60;"><img src="${src}" style="max-width:92vw;max-height:88vh;border-radius:10px;"></div>`);
+  fondo.addEventListener("click", () => fondo.remove());
+  document.body.appendChild(fondo);
 }
 
 /* ============================================================
@@ -680,18 +725,21 @@ async function renderPendientes(){
 
   pendientes.forEach(r => {
     const dias = diasDesde(r.FechaApertura);
+    const fotos = parseFotos(r.FotosApertura);
     const item = el(`
       <div class="item-pendiente">
         <div class="zona-nombre">${r.Zona}</div>
         <p class="punto-txt">${r.Punto}</p>
         <div class="meta">Reportado por ${r.SupervisorApertura} · ${formatearFecha(r.FechaApertura)}</div>
         <div class="meta">"${r.ObservacionApertura || ""}"</div>
+        ${renderGaleria(fotos)}
         <span class="dias-abierto ${dias >= 2 ? "dias-alerta" : "dias-ok"}">
           ${dias === 0 ? "Reportado hoy" : dias + " día(s) sin resolver"}
         </span>
         <br><button class="boton secundario" style="margin-top:10px;">Marcar como resuelto</button>
       </div>
     `);
+    activarGaleria(item);
     item.querySelector("button").addEventListener("click", () => {
       estadoCierre.registroSeleccionado = r;
       estadoCierre.supervisor = "";
@@ -715,14 +763,14 @@ function vistaDetalleCierre(){
   });
   cont.appendChild(volver);
 
-  const primeraFoto = (r.FotosApertura || "").split(",").map(s=>s.trim()).filter(Boolean)[0];
+  const fotosOriginales = parseFotos(r.FotosApertura);
 
   const tarjeta = el(`
     <div class="tarjeta">
       <div class="zona-nombre">${r.Zona}</div>
       <h2>${r.Punto}</h2>
       <p style="font-size:13px;">Observación original: "${r.ObservacionApertura || ""}"</p>
-      ${primeraFoto ? `<img class="foto-evidencia" src="${primeraFoto}">` : ""}
+      ${renderGaleria(fotosOriginales)}
 
       <label class="campo">¿Quién está cerrando este pendiente?</label>
       <select id="sel-sup-cierre">
@@ -763,6 +811,7 @@ function vistaDetalleCierre(){
   pintarPreviewCierre(tarjeta);
 
   tarjeta.querySelector("#btn-cerrar-pendiente").addEventListener("click", () => enviarCierre(tarjeta));
+  activarGaleria(tarjeta);
 
   cont.appendChild(tarjeta);
   return cont;
@@ -835,7 +884,6 @@ async function renderPanel(){
     return;
   }
 
-  const totalZonas = ZONAS.length;
   const pendientesTotal = registros.filter(r => r.Estado === "Pendiente").length;
   const zonasConPendiente = new Set(registros.filter(r => r.Estado === "Pendiente").map(r => r.Zona)).size;
   const hoy = new Date().toDateString();
@@ -843,26 +891,28 @@ async function renderPanel(){
     registros.filter(r => new Date(r.FechaApertura).toDateString() === hoy).map(r => r.Zona)
   ).size;
 
-  main.innerHTML = "";
-
-  main.appendChild(el(`
-    <div class="stats-grid">
-      <div class="stat ${zonasConPendiente>0?'alerta':''}"><div class="num">${zonasConPendiente}</div><div class="label">Zonas con pendientes</div></div>
-      <div class="stat ${pendientesTotal>0?'alerta':''}"><div class="num">${pendientesTotal}</div><div class="label">Puntos pendientes</div></div>
-      <div class="stat"><div class="num">${revisadasHoy}</div><div class="label">Zonas revisadas hoy</div></div>
-      <div class="stat"><div class="num">${totalZonas}</div><div class="label">Zonas totales</div></div>
-    </div>
-  `));
-
-  const tarjetaLista = el(`<div class="tarjeta"><h2>Estado por zona</h2><div id="lista-zonas-panel"></div></div>`);
-  const listaZonasPanel = tarjetaLista.querySelector("#lista-zonas-panel");
-
   const infoZonas = ZONAS.map(zona => {
     const regZona = registros.filter(r => r.Zona === zona.nombre);
     const pend = regZona.filter(r => r.Estado === "Pendiente");
     const ultima = regZona.reduce((max, r) => (!max || new Date(r.FechaApertura) > new Date(max.FechaApertura)) ? r : max, null);
     return { zona, pend, ultima, dias: ultima ? diasDesde(ultima.FechaApertura) : null };
   });
+
+  const zonasVencidas = infoZonas.filter(info => info.pend.length === 0 && info.dias !== null && info.dias > DIAS_LIMITE_REVISION).length;
+
+  main.innerHTML = "";
+
+  main.appendChild(el(`
+    <div class="stats-grid">
+      <div class="stat ${zonasConPendiente>0?'alerta':''}"><div class="num">${zonasConPendiente}</div><div class="label">Zonas con pendientes</div></div>
+      <div class="stat ${pendientesTotal>0?'alerta':''}"><div class="num">${pendientesTotal}</div><div class="label">Puntos pendientes</div></div>
+      <div class="stat" style="${zonasVencidas>0?'background:#fff3e0;':''}"><div class="num" style="${zonasVencidas>0?'color:#e65100;':''}">${zonasVencidas}</div><div class="label">Zonas por revisar (venció el plazo)</div></div>
+      <div class="stat"><div class="num">${revisadasHoy}</div><div class="label">Zonas revisadas hoy</div></div>
+    </div>
+  `));
+
+  const tarjetaLista = el(`<div class="tarjeta"><h2>Estado por zona</h2><div id="lista-zonas-panel"></div></div>`);
+  const listaZonasPanel = tarjetaLista.querySelector("#lista-zonas-panel");
 
   // Ordenar: primero las que tienen pendientes, luego las que llevan más tiempo sin revisión, luego las nunca revisadas
   infoZonas.sort((a, b) => {
@@ -876,6 +926,8 @@ async function renderPanel(){
     let pill, sub;
     if (info.pend.length > 0){
       pill = `<span class="estado-pill pill-pend">${info.pend.length} pendiente(s)</span>`;
+    } else if (info.ultima && info.dias !== null && info.dias > DIAS_LIMITE_REVISION){
+      pill = `<span class="estado-pill pill-vencido">Pendiente por revisar</span>`;
     } else if (info.ultima){
       pill = `<span class="estado-pill pill-ok">Al día</span>`;
     } else {
@@ -887,9 +939,12 @@ async function renderPanel(){
       sub = "Nunca se ha revisado";
     }
 
+    const fotoMini = info.ultima ? primeraFotoDeRegistro(info.ultima) : null;
+
     const fila = el(`
       <div class="fila-zona-panel">
-        <div>
+        ${fotoMini ? `<img class="mini-thumb" src="${fotoMini}" data-foto="${fotoMini}">` : `<div class="mini-thumb mini-thumb-vacio">🧹</div>`}
+        <div style="flex:1;">
           <div class="nombre">${info.zona.nombre}</div>
           <div class="sub">${sub}</div>
         </div>
@@ -897,6 +952,7 @@ async function renderPanel(){
       </div>
     `);
     fila.style.cursor = "pointer";
+    activarGaleria(fila);
     fila.addEventListener("click", () => mostrarDetalleZona(info.zona, registros));
     listaZonasPanel.appendChild(fila);
   });
@@ -924,17 +980,23 @@ function mostrarDetalleZona(zona, registros){
     historial.appendChild(el(`<div class="vacio">Todavía no hay registros de esta zona.</div>`));
   } else {
     regZona.slice(0, 20).forEach(r => {
-      const fotos = (r.FotosApertura||"").split(",").map(s=>s.trim()).filter(Boolean);
+      const fotosApertura = parseFotos(r.FotosApertura);
+      const fotosCierre = parseFotos(r.FotosCierre);
       const item = el(`
         <div class="item-pendiente">
           <div class="zona-nombre">${r.Estado === "Pendiente" ? "PENDIENTE" : r.Estado === "Cerrado" ? "RESUELTO" : "CUMPLE"}</div>
           <p class="punto-txt">${r.Punto}</p>
           <div class="meta">${formatearFecha(r.FechaApertura)} · ${r.SupervisorApertura}</div>
           ${r.ObservacionApertura ? `<div class="meta">"${r.ObservacionApertura}"</div>` : ""}
-          ${fotos[0] ? `<img class="foto-evidencia" src="${fotos[0]}">` : ""}
-          ${r.Estado === "Cerrado" ? `<div class="meta" style="margin-top:6px;">✔ Resuelto ${formatearFecha(r.FechaCierre)} por ${r.SupervisorCierre}</div>` : ""}
+          ${fotosApertura.length ? `<div class="etiqueta-fotos">${r.Estado === "Pendiente" || r.Estado === "Cerrado" ? "Foto del problema" : "Foto de evidencia"}</div>${renderGaleria(fotosApertura)}` : ""}
+          ${r.Estado === "Cerrado" ? `
+            <div class="meta" style="margin-top:6px;">✔ Resuelto ${formatearFecha(r.FechaCierre)} por ${r.SupervisorCierre}</div>
+            ${r.ObservacionCierre ? `<div class="meta">"${r.ObservacionCierre}"</div>` : ""}
+            ${fotosCierre.length ? `<div class="etiqueta-fotos">Foto de cómo quedó</div>${renderGaleria(fotosCierre)}` : ""}
+          ` : ""}
         </div>
       `);
+      activarGaleria(item);
       historial.appendChild(item);
     });
   }
