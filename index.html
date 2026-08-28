@@ -483,10 +483,12 @@ function vistaPunto(textoPunto, idx){
         <button data-val="Cumple" class="${resp.estado==="Cumple"?"sel-cumple":""}">✔ Cumple</button>
         <button data-val="Pendiente" class="${resp.estado==="Pendiente"?"sel-no":""}">✘ No cumple</button>
       </div>
-      <div class="detalle-no ${resp.estado==="Pendiente" ? "" : "oculto"}" id="detalle-${idx}">
+      <div class="detalle-no ${resp.estado ? "" : "oculto"}" id="detalle-${idx}">
+        ${resp.estado === "Pendiente" ? `
         <label class="campo">¿Qué está mal? (observación)</label>
         <textarea rows="2" placeholder="Ej: Botellas vacías cerca al muelle" id="obs-${idx}">${resp.observacion}</textarea>
-        <label class="campo">Foto(s) de evidencia</label>
+        ` : ""}
+        <label class="campo">${resp.estado === "Pendiente" ? "Foto(s) de evidencia (obligatoria)" : "Foto de evidencia (opcional)"}</label>
         <label class="input-foto">📷 Tomar / subir foto
           <input type="file" accept="image/*" capture="environment" multiple id="foto-${idx}">
         </label>
