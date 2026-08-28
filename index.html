@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Checklist Orden y Aseo - Agrícola Guapa</title>
+<style>
+  :root{
+    --verde-oscuro:#1b5e20;
+    --verde:#2e7d32;
+    --verde-claro:#e8f5e9;
+    --amarillo:#f9a825;
+    --rojo:#c62828;
+    --rojo-claro:#fdecea;
+    --gris:#757575;
+    --gris-claro:#f4f4f4;
+    --texto:#212121;
+    --borde:#dcdcdc;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--gris-claro); color:var(--texto); padding-bottom:70px;
+  }
+  header{
+    background:var(--verde-oscuro); color:#fff; padding:16px 16px 14px;
+    position:sticky; top:0; z-index:20;
+  }
+  header h1{margin:0; font-size:17px; font-weight:700;}
+  header p{margin:2px 0 0; font-size:12px; opacity:.85;}
+  #banner-config{
+    background:var(--rojo); color:#fff; padding:8px 14px; font-size:12px; text-align:center;
+    display:none;
+  }
+  main{padding:14px; max-width:640px; margin:0 auto;}
+  .oculto{display:none !important;}
+
+  /* Navegación inferior */
+  nav.tabs{
+    position:fixed; bottom:0; left:0; right:0; background:#fff;
+    display:flex; border-top:1px solid var(--borde); z-index:20;
+  }
+  nav.tabs button{
+    flex:1; border:none; background:none; padding:10px 4px 8px; font-size:11px;
+    color:var(--gris); display:flex; flex-direction:column; align-items:center; gap:2px;
+  }
+  nav.tabs button .icono{font-size:20px;}
+  nav.tabs button.activo{color:var(--verde-oscuro); font-weight:700;}
+
+  /* Tarjetas generales */
+  .tarjeta{
+    background:#fff; border-radius:12px; padding:14px; margin-bottom:12px;
+    box-shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  h2{font-size:16px; margin:0 0 10px;}
+  h3{font-size:14px; margin:0 0 8px;}
+
+  select, input[type=text], textarea{
+    width:100%; padding:10px; border:1px solid var(--borde); border-radius:8px;
+    font-size:15px; background:#fff; font-family:inherit;
+  }
+  label.campo{display:block; font-size:12px; color:var(--gris); margin:10px 0 4px; font-weight:600;}
+
+  /* Grilla de zonas */
+  .grilla-zonas{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .zona-btn{
+    background:#fff; border:1px solid var(--borde); border-radius:12px; padding:12px 10px;
+    text-align:left; font-size:13px; font-weight:600; line-height:1.3; position:relative;
+    min-height:76px; display:flex; align-items:flex-end;
+  }
+  .zona-btn .badge{
+    position:absolute; top:8px; right:8px; width:10px; height:10px; border-radius:50%;
+  }
+  .badge-verde{background:#43a047;}
+  .badge-rojo{background:var(--rojo);}
+  .badge-gris{background:#bdbdbd;}
+
+  .boton{
+    display:block; width:100%; padding:13px; border:none; border-radius:10px;
+    background:var(--verde); color:#fff; font-size:15px; font-weight:700; margin-top:14px;
+  }
+  .boton.secundario{background:#fff; color:var(--verde-oscuro); border:1.5px solid var(--verde);}
+  .boton.gris{background:#e0e0e0; color:var(--texto);}
+  .boton:disabled{opacity:.5;}
+
+  .volver{background:none; border:none; color:var(--verde-oscuro); font-size:13px; font-weight:700; padding:6px 0 12px; display:flex; align-items:center; gap:4px;}
+
+  /* Punto de checklist */
+  .punto{border:1px solid var(--borde); border-radius:10px; padding:12px; margin-bottom:10px;}
+  .punto p.texto{margin:0 0 8px; font-size:14px; font-weight:600;}
+  .switch-estado{display:flex; gap:8px;}
+  .switch-estado button{
+    flex:1; padding:9px; border-radius:8px; border:1.5px solid var(--borde); background:#fff;
+    font-size:13px; font-weight:700; color:var(--gris);
+  }
+  .switch-estado button.sel-cumple{background:var(--verde-claro); border-color:var(--verde); color:var(--verde-oscuro);}
+  .switch-estado button.sel-no{background:var(--rojo-claro); border-color:var(--rojo); color:var(--rojo);}
+  .detalle-no{margin-top:10px; padding-top:10px; border-top:1px dashed var(--borde);}
+
+  .fotos-preview{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;}
+  .foto-mini{position:relative; width:64px; height:64px; border-radius:8px; overflow:hidden;}
+  .foto-mini img{width:100%; height:100%; object-fit:cover;}
+  .foto-mini .quitar{
+    position:absolute; top:0; right:0; background:rgba(0,0,0,.6); color:#fff; border:none;
+    width:20px; height:20px; font-size:12px; line-height:1;
+  }
+  .input-foto{
+    display:inline-block; padding:9px 12px; border:1.5px dashed var(--verde); border-radius:8px;
+    color:var(--verde-oscuro); font-size:13px; font-weight:700; text-align:center; cursor:pointer;
+  }
+  .input-foto input{display:none;}
+
+  /* Pendientes */
+  .item-pendiente{border:1px solid var(--borde); border-radius:10px; padding:12px; margin-bottom:10px;}
+  .item-pendiente .zona-nombre{font-size:11px; color:var(--gris); text-transform:uppercase; font-weight:700;}
+  .item-pendiente p.punto-txt{margin:4px 0; font-size:14px; font-weight:600;}
+  .item-pendiente .meta{font-size:12px; color:var(--gris);}
+  .dias-abierto{display:inline-block; margin-top:6px; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700;}
+  .dias-ok{background:var(--verde-claro); color:var(--verde-oscuro);}
+  .dias-alerta{background:var(--rojo-claro); color:var(--rojo);}
+  .foto-evidencia{width:100%; max-width:220px; border-radius:8px; margin-top:8px; display:block;}
+
+  /* Panel */
+  .stats-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;}
+  .stat{background:#fff; border-radius:12px; padding:12px; text-align:center;}
+  .stat .num{font-size:22px; font-weight:800; color:var(--verde-oscuro);}
+  .stat.alerta .num{color:var(--rojo);}
+  .stat .label{font-size:11px; color:var(--gris); margin-top:2px;}
+
+  .fila-zona-panel{
+    display:flex; justify-content:space-between; align-items:center; padding:12px 4px;
+    border-bottom:1px solid var(--borde); gap:10px;
+  }
+  .fila-zona-panel:last-child{border-bottom:none;}
+  .fila-zona-panel .nombre{font-size:13px; font-weight:700;}
+  .fila-zona-panel .sub{font-size:11px; color:var(--gris); margin-top:2px;}
+  .estado-pill{font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; white-space:nowrap;}
+  .pill-ok{background:var(--verde-claro); color:var(--verde-oscuro);}
+  .pill-pend{background:var(--rojo-claro); color:var(--rojo);}
+  .pill-sin{background:#eee; color:var(--gris);}
+
+  .cargando{text-align:center; color:var(--gris); padding:30px 0; font-size:13px;}
+  .vacio{text-align:center; color:var(--gris); padding:24px 0; font-size:13px;}
+
+  .modal-fondo{
+    position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:30; display:flex;
+    align-items:flex-end; justify-content:center;
+  }
+  .modal{background:#fff; border-radius:16px 16px 0 0; padding:18px; width:100%; max-width:640px; max-height:88vh; overflow:auto;}
+
+  .toast{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); background:var(--verde-oscuro);
+    color:#fff; padding:10px 18px; border-radius:30px; font-size:13px; z-index:50; box-shadow:0 2px 8px rgba(0,0,0,.2);
+  }
+  .toast.error{background:var(--rojo);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🍍 Orden y Aseo - Planta Empacadora</h1>
+  <p>Agrícola Guapa · Cosecha</p>
+</header>
+<div id="banner-config">⚠ Falta configurar la URL de Apps Script en index.html (CONFIG.APPS_SCRIPT_URL)</div>
+
+<main id="main"></main>
+
+<nav class="tabs">
+  <button data-tab="registrar" class="activo"><span class="icono">📋</span>Registrar</button>
+  <button data-tab="pendientes"><span class="icono">🧹</span>Pendientes</button>
+  <button data-tab="panel"><span class="icono">📊</span>Panel</button>
+</nav>
+
+<script>
+/* ============================================================
+   CONFIGURACIÓN — reemplaza esta URL por la de tu Apps Script
+   (la obtienes en el paso "Implementar > Nueva implementación")
+   ============================================================ */
+const CONFIG = {
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyLLcryD5yqyCHeufUeXrnuyG3GNdkV4y9V4hw6eeLWkluBfVGpL_e-K_-LtfNUHTgAlg/exec"
+};
+
+/* ============================================================
+   ZONAS Y PUNTOS DE REVISIÓN
+   ============================================================ */
+const ZONAS = [
+  { nombre: "Patio frente a despachos", puntos: [
+    "Sin basuras, envases o residuos en el patio"
+  ]},
+  { nombre: "Muelle de cargue y descargue", puntos: [
+    "Sin botellas vacías ni objetos de aseo",
+    "Orden general del muelle"
+  ]},
+  { nombre: "Canecas de la basura", puntos: [
+    "Canecas sin exceso de llenado (cambiar si están llenas)",
+    "Entorno de las canecas sin basura regada"
+  ]},
+  { nombre: "Sector salida de emergencia", puntos: [
+    "Estibas en buen estado y agrupadas en un solo sitio",
+    "Sin envolturas ni basuras en la vía de salida"
+  ]},
+  { nombre: "Entrada a planta", puntos: [
+    "Recorrido de entrada sin basuras",
+    "Lavabotas limpio, funcionando y sin agua represada"
+  ]},
+  { nombre: "Zona de casilleros", puntos: [
+    "Casilleros en orden y sin daños (si hay daño, indicar el código del casillero)",
+    "Zona de casilleros limpia"
+  ]},
+  { nombre: "Zona de lavamanos", puntos: [
+    "Sin toallas en el piso",
+    "Jabón disponible en los dispensadores (si falta, indicarlo para generar requisición)",
+    "Sin envases u objetos en la zona"
+  ]},
+  { nombre: "Zona de baños", puntos: [
+    "Orden y aseo general de los baños"
+  ]},
+  { nombre: "Zona de recepción de fruta", puntos: [
+    "Patio de recepción sin basuras",
+    "Vía hacia la báscula de bines sin obstrucciones"
+  ]},
+  { nombre: "Zona de clasificación", puntos: [
+    "Sin basuras ni tarros en el área",
+    "Canastillas organizadas"
+  ]},
+  { nombre: "Zona de cartonera", puntos: [
+    "Estibas del mezanine en orden",
+    "Cuarto de insumos ordenado"
+  ]},
+  { nombre: "Zona de descargue de canastas y descarte de fruta", puntos: [
+    "Sin residuos de piña regados",
+    "Bin de descarte retirado después de usarse",
+    "Isotanques de agua lavados, en buen estado y con agua limpia"
+  ]},
+  { nombre: "Cuarto de máquinas y planta eléctrica", puntos: [
+    "Sin telarañas",
+    "Sin basuras alrededor del cuarto"
+  ]},
+  { nombre: "Bodega de planta", puntos: [
+    "Canastas agrupadas en un solo lugar (no regadas)",
+    "Canastillas IFCO organizadas",
+    "Entrada a cuarto frío despejada y en orden",
+    "Pisos limpios, sin charcos de agua"
+  ]},
+  { nombre: "Zona de empaque", puntos: [
+    "Pisos limpios, sin charcos de agua",
+    "Sin objetos extraños en la banda de suministro de cartón"
+  ]},
+  { nombre: "Cuarto frío", puntos: [
+    "Pre-frío en orden y limpio",
+    "Sostenimiento y muelle de cuarto frío en orden",
+    "Paredes limpias, sin insectos"
+  ]},
+  { nombre: "Oficina de despachos", puntos: [
+    "Escritorio despejado y ordenado",
+    "Solo el celular de trabajo sobre el escritorio"
+  ]},
+  { nombre: "Techos en general de toda la planta", puntos: [
+    "Sin telarañas"
+  ]}
+];
+
+const SUPERVISORES = [
+  "Andrés Restrepo",
+  "José Miguel Beltrán",
+  "Handel Narváez",
+  "Jhoan Camilo Hernández",
+  "Juan David Quintero"
+];
+
+/* ============================================================
+   ESTADO GLOBAL DE LA APP
+   ============================================================ */
+let tabActual = "registrar";
+let cacheRegistros = null; // se llena al abrir Pendientes o Panel
+
+const estadoRegistrar = {
+  pantalla: "inicio", // inicio | zona | enviando
+  supervisor: "",
+  zonaIndex: null,
+  respuestas: {} // { indicePunto: {estado, observacion, fotos:[dataURL]} }
+};
+
+const estadoCierre = {
+  pantalla: "lista", // lista | detalle
+  registroSeleccionado: null,
+  supervisor: "",
+  observacion: "",
+  fotos: []
+};
+
+/* ============================================================
+   UTILIDADES
+   ============================================================ */
+function el(html){
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+
+function mostrarToast(mensaje, esError){
+  const t = document.createElement("div");
+  t.className = "toast" + (esError ? " error" : "");
+  t.textContent = mensaje;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+function comprimirImagen(archivo){
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1000;
+        let w = img.width, h = img.height;
+        if (w > h && w > maxDim){ h = Math.round(h * (maxDim / w)); w = maxDim; }
+        else if (h > maxDim){ w = Math.round(w * (maxDim / h)); h = maxDim; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    lector.onerror = reject;
+    lector.readAsDataURL(archivo);
+  });
+}
+
+async function enviarPost(payload){
+  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+
+async function pedirListado(forzar){
+  if (cacheRegistros && !forzar) return cacheRegistros;
+  const res = await fetch(CONFIG.APPS_SCRIPT_URL + "?action=listar");
+  const data = await res.json();
+  if (data.ok) cacheRegistros = data.registros;
+  return data.registros || [];
+}
+
+function formatearFecha(iso){
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString("es-CO", { day:"2-digit", month:"short" }) + " " +
+         d.toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit" });
+}
+
+function diasDesde(iso){
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+/* ============================================================
+   NAVEGACIÓN DE PESTAÑAS
+   ============================================================ */
+document.querySelectorAll("nav.tabs button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    tabActual = btn.dataset.tab;
+    document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("activo"));
+    btn.classList.add("activo");
+    render();
+  });
+});
+
+function render(){
+  if (CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
+    document.getElementById("banner-config").style.display = "block";
+  }
+  if (tabActual === "registrar") renderRegistrar();
+  else if (tabActual === "pendientes") renderPendientes();
+  else renderPanel();
+}
+
+/* ============================================================
+   PESTAÑA 1: REGISTRAR CHECKLIST
+   ============================================================ */
+function renderRegistrar(){
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+
+  if (estadoRegistrar.pantalla === "inicio"){
+    main.appendChild(vistaInicioRegistrar());
+  } else if (estadoRegistrar.pantalla === "zona"){
+    main.appendChild(vistaZonaChecklist());
+  }
+}
+
+function vistaInicioRegistrar(){
+  const cont = el(`<div></div>`);
+
+  const tarjetaSup = el(`
+    <div class="tarjeta">
+      <h2>1. ¿Quién va a hacer el checklist?</h2>
+      <label class="campo">Supervisor</label>
+      <select id="sel-supervisor">
+        <option value="">Selecciona tu nombre...</option>
+        ${SUPERVISORES.map(s => `<option value="${s}" ${estadoRegistrar.supervisor===s?"selected":""}>${s}</option>`).join("")}
+      </select>
+    </div>
+  `);
+  tarjetaSup.querySelector("#sel-supervisor").addEventListener("change", (e) => {
+    estadoRegistrar.supervisor = e.target.value;
+  });
+  cont.appendChild(tarjetaSup);
+
+  const tarjetaZonas = el(`
+    <div class="tarjeta">
+      <h2>2. Elige la zona a revisar</h2>
+      <div class="grilla-zonas" id="grilla-zonas"></div>
+    </div>
+  `);
+  const grilla = tarjetaZonas.querySelector("#grilla-zonas");
+  ZONAS.forEach((zona, idx) => {
+    const b = el(`<button class="zona-btn"><span class="badge badge-gris"></span>${zona.nombre}</button>`);
+    b.addEventListener("click", () => {
+      if (!estadoRegistrar.supervisor){
+        mostrarToast("Primero selecciona tu nombre", true);
+        return;
+      }
+      estadoRegistrar.zonaIndex = idx;
+      estadoRegistrar.respuestas = {};
+      estadoRegistrar.pantalla = "zona";
+      renderRegistrar();
+    });
+    grilla.appendChild(b);
+  });
+  cont.appendChild(tarjetaZonas);
+
+  return cont;
+}
+
+function vistaZonaChecklist(){
+  const zona = ZONAS[estadoRegistrar.zonaIndex];
+  const cont = el(`<div></div>`);
+
+  const volver = el(`<button class="volver">‹ Cambiar de zona</button>`);
+  volver.addEventListener("click", () => {
+    estadoRegistrar.pantalla = "inicio";
+    renderRegistrar();
+  });
+  cont.appendChild(volver);
+
+  const tarjeta = el(`
+    <div class="tarjeta">
+      <h2>${zona.nombre}</h2>
+      <p style="font-size:12px;color:var(--gris);margin-top:-6px;">Supervisor: ${estadoRegistrar.supervisor}</p>
+      <div id="lista-puntos"></div>
+    </div>
+  `);
+  const listaPuntos = tarjeta.querySelector("#lista-puntos");
+
+  zona.puntos.forEach((textoPunto, idx) => {
+    if (!estadoRegistrar.respuestas[idx]){
+      estadoRegistrar.respuestas[idx] = { estado: null, observacion: "", fotos: [] };
+    }
+    listaPuntos.appendChild(vistaPunto(textoPunto, idx));
+  });
+
+  cont.appendChild(tarjeta);
+
+  const btnGuardar = el(`<button class="boton" id="btn-guardar-zona">Guardar checklist de esta zona</button>`);
+  btnGuardar.addEventListener("click", enviarChecklistZona);
+  cont.appendChild(btnGuardar);
+
+  return cont;
+}
+
+function vistaPunto(textoPunto, idx){
+  const resp = estadoRegistrar.respuestas[idx];
+  const item = el(`
+    <div class="punto" id="punto-${idx}">
+      <p class="texto">${textoPunto}</p>
+      <div class="switch-estado">
+        <button data-val="Cumple" class="${resp.estado==="Cumple"?"sel-cumple":""}">✔ Cumple</button>
+        <button data-val="Pendiente" class="${resp.estado==="Pendiente"?"sel-no":""}">✘ No cumple</button>
+      </div>
+      <div class="detalle-no ${resp.estado==="Pendiente" ? "" : "oculto"}" id="detalle-${idx}">
+        <label class="campo">¿Qué está mal? (observación)</label>
+        <textarea rows="2" placeholder="Ej: Botellas vacías cerca al muelle" id="obs-${idx}">${resp.observacion}</textarea>
+        <label class="campo">Foto(s) de evidencia</label>
+        <label class="input-foto">📷 Tomar / subir foto
+          <input type="file" accept="image/*" capture="environment" multiple id="foto-${idx}">
+        </label>
+        <div class="fotos-preview" id="preview-${idx}"></div>
+      </div>
+    </div>
+  `);
+
+  item.querySelectorAll(".switch-estado button").forEach(b => {
+    b.addEventListener("click", () => {
+      resp.estado = b.dataset.val;
+      const nuevoPunto = vistaPunto(textoPunto, idx);
+      item.replaceWith(nuevoPunto);
+    });
+  });
+
+  const obsInput = item.querySelector(`#obs-${idx}`);
+  if (obsInput){
+    obsInput.addEventListener("input", (e) => { resp.observacion = e.target.value; });
+  }
+
+  const fotoInput = item.querySelector(`#foto-${idx}`);
+  if (fotoInput){
+    fotoInput.addEventListener("change", async (e) => {
+      const archivos = Array.from(e.target.files);
+      for (const archivo of archivos){
+        try{
+          const dataUrl = await comprimirImagen(archivo);
+          resp.fotos.push(dataUrl);
+        }catch(err){ console.error(err); }
+      }
+      e.target.value = "";
+      pintarPreviewFotos(idx);
+    });
+  }
+  pintarPreviewFotosEn(item, idx);
+
+  return item;
+}
+
+function pintarPreviewFotos(idx){
+  const cont = document.getElementById(`preview-${idx}`);
+  if (cont) pintarPreviewFotosEn(document.getElementById(`punto-${idx}`), idx);
+}
+
+function pintarPreviewFotosEn(item, idx){
+  const cont = item.querySelector(`#preview-${idx}`);
+  if (!cont) return;
+  const resp = estadoRegistrar.respuestas[idx];
+  cont.innerHTML = "";
+  resp.fotos.forEach((foto, i) => {
+    const mini = el(`
+      <div class="foto-mini">
+        <img src="${foto}">
+        <button class="quitar" type="button">✕</button>
+      </div>
+    `);
+    mini.querySelector(".quitar").addEventListener("click", () => {
+      resp.fotos.splice(i, 1);
+      pintarPreviewFotosEn(item, idx);
+    });
+    cont.appendChild(mini);
+  });
+}
+
+async function enviarChecklistZona(){
+  const zona = ZONAS[estadoRegistrar.zonaIndex];
+  const respuestas = estadoRegistrar.respuestas;
+
+  // Validaciones
+  for (let idx = 0; idx < zona.puntos.length; idx++){
+    const r = respuestas[idx];
+    if (!r.estado){
+      mostrarToast("Falta marcar Cumple / No cumple en: " + zona.puntos[idx], true);
+      return;
+    }
+    if (r.estado === "Pendiente" && r.fotos.length === 0){
+      mostrarToast("Sube al menos una foto en: " + zona.puntos[idx], true);
+      return;
+    }
+    if (r.estado === "Pendiente" && !r.observacion.trim()){
+      mostrarToast("Escribe una observación en: " + zona.puntos[idx], true);
+      return;
+    }
+  }
+
+  if (CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
+    mostrarToast("Falta configurar la URL de Apps Script", true);
+    return;
+  }
+
+  const btn = document.getElementById("btn-guardar-zona");
+  btn.disabled = true;
+  btn.textContent = "Guardando...";
+
+  const items = zona.puntos.map((texto, idx) => ({
+    punto: texto,
+    estado: respuestas[idx].estado,
+    observacion: respuestas[idx].observacion,
+    fotos: respuestas[idx].fotos
+  }));
+
+  try{
+    const resultado = await enviarPost({
+      action: "crear_lote",
+      zona: zona.nombre,
+      supervisor: estadoRegistrar.supervisor,
+      items: items
+    });
+    if (resultado.ok){
+      mostrarToast("Checklist guardado ✅");
+      cacheRegistros = null; // refrescar panel/pendientes en la próxima consulta
+      estadoRegistrar.pantalla = "inicio";
+      estadoRegistrar.zonaIndex = null;
+      estadoRegistrar.respuestas = {};
+      renderRegistrar();
+    } else {
+      mostrarToast("Error: " + resultado.error, true);
+      btn.disabled = false;
+      btn.textContent = "Guardar checklist de esta zona";
+    }
+  } catch(err){
+    mostrarToast("No se pudo conectar. Revisa tu internet.", true);
+    btn.disabled = false;
+    btn.textContent = "Guardar checklist de esta zona";
+  }
+}
+
+/* ============================================================
+   PESTAÑA 2: CERRAR PENDIENTES
+   ============================================================ */
+async function renderPendientes(){
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="cargando">Cargando pendientes...</div>`;
+
+  if (estadoCierre.pantalla === "detalle"){
+    main.innerHTML = "";
+    main.appendChild(vistaDetalleCierre());
+    return;
+  }
+
+  let registros;
+  try{
+    registros = await pedirListado();
+  }catch(err){
+    main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa la URL de Apps Script o tu internet.</div>`;
+    return;
+  }
+
+  const pendientes = registros
+    .filter(r => r.Estado === "Pendiente")
+    .sort((a,b) => new Date(a.FechaApertura) - new Date(b.FechaApertura));
+
+  main.innerHTML = "";
+
+  const encabezado = el(`
+    <div class="tarjeta">
+      <h2>Puntos pendientes por cerrar</h2>
+      <p style="font-size:12px;color:var(--gris);margin:0;">
+        ${pendientes.length === 0 ? "No hay pendientes abiertos en este momento 🎉" : pendientes.length + " punto(s) esperando limpieza"}
+      </p>
+    </div>
+  `);
+  main.appendChild(encabezado);
+
+  if (pendientes.length === 0) return;
+
+  pendientes.forEach(r => {
+    const dias = diasDesde(r.FechaApertura);
+    const item = el(`
+      <div class="item-pendiente">
+        <div class="zona-nombre">${r.Zona}</div>
+        <p class="punto-txt">${r.Punto}</p>
+        <div class="meta">Reportado por ${r.SupervisorApertura} · ${formatearFecha(r.FechaApertura)}</div>
+        <div class="meta">"${r.ObservacionApertura || ""}"</div>
+        <span class="dias-abierto ${dias >= 2 ? "dias-alerta" : "dias-ok"}">
+          ${dias === 0 ? "Reportado hoy" : dias + " día(s) sin resolver"}
+        </span>
+        <br><button class="boton secundario" style="margin-top:10px;">Marcar como resuelto</button>
+      </div>
+    `);
+    item.querySelector("button").addEventListener("click", () => {
+      estadoCierre.registroSeleccionado = r;
+      estadoCierre.supervisor = "";
+      estadoCierre.observacion = "";
+      estadoCierre.fotos = [];
+      estadoCierre.pantalla = "detalle";
+      renderPendientes();
+    });
+    main.appendChild(item);
+  });
+}
+
+function vistaDetalleCierre(){
+  const r = estadoCierre.registroSeleccionado;
+  const cont = el(`<div></div>`);
+
+  const volver = el(`<button class="volver">‹ Volver a pendientes</button>`);
+  volver.addEventListener("click", () => {
+    estadoCierre.pantalla = "lista";
+    renderPendientes();
+  });
+  cont.appendChild(volver);
+
+  const primeraFoto = (r.FotosApertura || "").split(",").map(s=>s.trim()).filter(Boolean)[0];
+
+  const tarjeta = el(`
+    <div class="tarjeta">
+      <div class="zona-nombre">${r.Zona}</div>
+      <h2>${r.Punto}</h2>
+      <p style="font-size:13px;">Observación original: "${r.ObservacionApertura || ""}"</p>
+      ${primeraFoto ? `<img class="foto-evidencia" src="${primeraFoto}">` : ""}
+
+      <label class="campo">¿Quién está cerrando este pendiente?</label>
+      <select id="sel-sup-cierre">
+        <option value="">Selecciona tu nombre...</option>
+        ${SUPERVISORES.map(s => `<option value="${s}">${s}</option>`).join("")}
+      </select>
+
+      <label class="campo">Observación de cierre (opcional)</label>
+      <textarea rows="2" id="obs-cierre" placeholder="Ej: Se recogieron las botellas y se barrió el área"></textarea>
+
+      <label class="campo">Foto de evidencia de que ya quedó limpio</label>
+      <label class="input-foto">📷 Tomar / subir foto
+        <input type="file" accept="image/*" capture="environment" multiple id="foto-cierre">
+      </label>
+      <div class="fotos-preview" id="preview-cierre"></div>
+
+      <button class="boton" id="btn-cerrar-pendiente">Marcar como resuelto</button>
+    </div>
+  `);
+
+  tarjeta.querySelector("#sel-sup-cierre").addEventListener("change", (e) => {
+    estadoCierre.supervisor = e.target.value;
+  });
+  tarjeta.querySelector("#obs-cierre").addEventListener("input", (e) => {
+    estadoCierre.observacion = e.target.value;
+  });
+  tarjeta.querySelector("#foto-cierre").addEventListener("change", async (e) => {
+    const archivos = Array.from(e.target.files);
+    for (const archivo of archivos){
+      try{
+        const dataUrl = await comprimirImagen(archivo);
+        estadoCierre.fotos.push(dataUrl);
+      }catch(err){ console.error(err); }
+    }
+    e.target.value = "";
+    pintarPreviewCierre(tarjeta);
+  });
+  pintarPreviewCierre(tarjeta);
+
+  tarjeta.querySelector("#btn-cerrar-pendiente").addEventListener("click", () => enviarCierre(tarjeta));
+
+  cont.appendChild(tarjeta);
+  return cont;
+}
+
+function pintarPreviewCierre(tarjeta){
+  const cont = tarjeta.querySelector("#preview-cierre");
+  cont.innerHTML = "";
+  estadoCierre.fotos.forEach((foto, i) => {
+    const mini = el(`<div class="foto-mini"><img src="${foto}"><button class="quitar" type="button">✕</button></div>`);
+    mini.querySelector(".quitar").addEventListener("click", () => {
+      estadoCierre.fotos.splice(i, 1);
+      pintarPreviewCierre(tarjeta);
+    });
+    cont.appendChild(mini);
+  });
+}
+
+async function enviarCierre(tarjeta){
+  if (!estadoCierre.supervisor){
+    mostrarToast("Selecciona quién está cerrando el pendiente", true);
+    return;
+  }
+  if (estadoCierre.fotos.length === 0){
+    mostrarToast("Sube al menos una foto de evidencia", true);
+    return;
+  }
+
+  const btn = tarjeta.querySelector("#btn-cerrar-pendiente");
+  btn.disabled = true;
+  btn.textContent = "Guardando...";
+
+  try{
+    const resultado = await enviarPost({
+      action: "cerrar_pendiente",
+      id: estadoCierre.registroSeleccionado.ID,
+      supervisor: estadoCierre.supervisor,
+      observacion: estadoCierre.observacion,
+      fotos: estadoCierre.fotos
+    });
+    if (resultado.ok){
+      mostrarToast("Pendiente cerrado ✅");
+      cacheRegistros = null;
+      estadoCierre.pantalla = "lista";
+      renderPendientes();
+    } else {
+      mostrarToast("Error: " + resultado.error, true);
+      btn.disabled = false;
+      btn.textContent = "Marcar como resuelto";
+    }
+  }catch(err){
+    mostrarToast("No se pudo conectar. Revisa tu internet.", true);
+    btn.disabled = false;
+    btn.textContent = "Marcar como resuelto";
+  }
+}
+
+/* ============================================================
+   PESTAÑA 3: PANEL DE FREDY
+   ============================================================ */
+async function renderPanel(){
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="cargando">Cargando panel...</div>`;
+
+  let registros;
+  try{
+    registros = await pedirListado(true);
+  }catch(err){
+    main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa la URL de Apps Script o tu internet.</div>`;
+    return;
+  }
+
+  const totalZonas = ZONAS.length;
+  const pendientesTotal = registros.filter(r => r.Estado === "Pendiente").length;
+  const zonasConPendiente = new Set(registros.filter(r => r.Estado === "Pendiente").map(r => r.Zona)).size;
+  const hoy = new Date().toDateString();
+  const revisadasHoy = new Set(
+    registros.filter(r => new Date(r.FechaApertura).toDateString() === hoy).map(r => r.Zona)
+  ).size;
+
+  main.innerHTML = "";
+
+  main.appendChild(el(`
+    <div class="stats-grid">
+      <div class="stat ${zonasConPendiente>0?'alerta':''}"><div class="num">${zonasConPendiente}</div><div class="label">Zonas con pendientes</div></div>
+      <div class="stat ${pendientesTotal>0?'alerta':''}"><div class="num">${pendientesTotal}</div><div class="label">Puntos pendientes</div></div>
+      <div class="stat"><div class="num">${revisadasHoy}</div><div class="label">Zonas revisadas hoy</div></div>
+      <div class="stat"><div class="num">${totalZonas}</div><div class="label">Zonas totales</div></div>
+    </div>
+  `));
+
+  const tarjetaLista = el(`<div class="tarjeta"><h2>Estado por zona</h2><div id="lista-zonas-panel"></div></div>`);
+  const listaZonasPanel = tarjetaLista.querySelector("#lista-zonas-panel");
+
+  const infoZonas = ZONAS.map(zona => {
+    const regZona = registros.filter(r => r.Zona === zona.nombre);
+    const pend = regZona.filter(r => r.Estado === "Pendiente");
+    const ultima = regZona.reduce((max, r) => (!max || new Date(r.FechaApertura) > new Date(max.FechaApertura)) ? r : max, null);
+    return { zona, pend, ultima, dias: ultima ? diasDesde(ultima.FechaApertura) : null };
+  });
+
+  // Ordenar: primero las que tienen pendientes, luego las que llevan más tiempo sin revisión, luego las nunca revisadas
+  infoZonas.sort((a, b) => {
+    if ((b.pend.length>0) !== (a.pend.length>0)) return (b.pend.length>0) - (a.pend.length>0);
+    const da = a.dias === null ? 9999 : a.dias;
+    const db = b.dias === null ? 9999 : b.dias;
+    return db - da;
+  });
+
+  infoZonas.forEach(info => {
+    let pill, sub;
+    if (info.pend.length > 0){
+      pill = `<span class="estado-pill pill-pend">${info.pend.length} pendiente(s)</span>`;
+    } else if (info.ultima){
+      pill = `<span class="estado-pill pill-ok">Al día</span>`;
+    } else {
+      pill = `<span class="estado-pill pill-sin">Sin revisar</span>`;
+    }
+    if (info.ultima){
+      sub = `Última revisión: ${formatearFecha(info.ultima.FechaApertura)} · ${info.ultima.SupervisorApertura}`;
+    } else {
+      sub = "Nunca se ha revisado";
+    }
+
+    const fila = el(`
+      <div class="fila-zona-panel">
+        <div>
+          <div class="nombre">${info.zona.nombre}</div>
+          <div class="sub">${sub}</div>
+        </div>
+        ${pill}
+      </div>
+    `);
+    fila.style.cursor = "pointer";
+    fila.addEventListener("click", () => mostrarDetalleZona(info.zona, registros));
+    listaZonasPanel.appendChild(fila);
+  });
+
+  main.appendChild(tarjetaLista);
+}
+
+function mostrarDetalleZona(zona, registros){
+  const regZona = registros
+    .filter(r => r.Zona === zona.nombre)
+    .sort((a,b) => new Date(b.FechaApertura) - new Date(a.FechaApertura));
+
+  const fondo = el(`<div class="modal-fondo"></div>`);
+  const modal = el(`
+    <div class="modal">
+      <h2>${zona.nombre}</h2>
+      <div id="historial-zona"></div>
+      <button class="boton gris" id="cerrar-modal">Cerrar</button>
+    </div>
+  `);
+  fondo.appendChild(modal);
+
+  const historial = modal.querySelector("#historial-zona");
+  if (regZona.length === 0){
+    historial.appendChild(el(`<div class="vacio">Todavía no hay registros de esta zona.</div>`));
+  } else {
+    regZona.slice(0, 20).forEach(r => {
+      const fotos = (r.FotosApertura||"").split(",").map(s=>s.trim()).filter(Boolean);
+      const item = el(`
+        <div class="item-pendiente">
+          <div class="zona-nombre">${r.Estado === "Pendiente" ? "PENDIENTE" : r.Estado === "Cerrado" ? "RESUELTO" : "CUMPLE"}</div>
+          <p class="punto-txt">${r.Punto}</p>
+          <div class="meta">${formatearFecha(r.FechaApertura)} · ${r.SupervisorApertura}</div>
+          ${r.ObservacionApertura ? `<div class="meta">"${r.ObservacionApertura}"</div>` : ""}
+          ${fotos[0] ? `<img class="foto-evidencia" src="${fotos[0]}">` : ""}
+          ${r.Estado === "Cerrado" ? `<div class="meta" style="margin-top:6px;">✔ Resuelto ${formatearFecha(r.FechaCierre)} por ${r.SupervisorCierre}</div>` : ""}
+        </div>
+      `);
+      historial.appendChild(item);
+    });
+  }
+
+  modal.querySelector("#cerrar-modal").addEventListener("click", () => fondo.remove());
+  fondo.addEventListener("click", (e) => { if (e.target === fondo) fondo.remove(); });
+
+  document.body.appendChild(fondo);
+}
+
+/* ============================================================
+   INICIO
+   ============================================================ */
+render();
+</script>
+</body>
+</html>
