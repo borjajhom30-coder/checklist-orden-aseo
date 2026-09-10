@@ -306,6 +306,7 @@ const SUPERVISORES = [
    ============================================================ */
 let tabActual = "registrar";
 let cacheRegistros = null; // se llena al abrir Pendientes o Panel
+let cacheTimestamp = null; // cuando se pidieron por ultima vez los datos a Google
 
 const estadoRegistrar = {
   pantalla: "inicio", // inicio | zona | enviando
@@ -375,8 +376,21 @@ async function pedirListado(forzar){
   if (cacheRegistros && !forzar) return cacheRegistros;
   const res = await fetch(CONFIG.APPS_SCRIPT_URL + "?action=listar");
   const data = await res.json();
-  if (data.ok) cacheRegistros = data.registros;
+  if (data.ok){
+    cacheRegistros = data.registros;
+    cacheTimestamp = new Date();
+  }
   return data.registros || [];
+}
+
+function textoUltimaActualizacion(){
+  if (!cacheTimestamp) return "";
+  const seg = Math.floor((Date.now() - cacheTimestamp.getTime()) / 1000);
+  if (seg < 5) return "Actualizado justo ahora";
+  if (seg < 60) return `Actualizado hace ${seg} segundos`;
+  const min = Math.floor(seg / 60);
+  if (min < 60) return `Actualizado hace ${min} minuto(s)`;
+  return `Actualizado hace ${Math.floor(min / 60)} hora(s)`;
 }
 
 function formatearFecha(iso){
@@ -408,7 +422,7 @@ function primeraFotoDeRegistro(r){
 
 function renderGaleria(urls){
   if (!urls || urls.length === 0) return "";
-  return `<div class="galeria-fotos">${urls.map(u => `<img src="${u}" data-foto="${u}">`).join("")}</div>`;
+  return `<div class="galeria-fotos">${urls.map(u => `<img src="${u}" data-foto="${u}" loading="lazy">`).join("")}</div>`;
 }
 
 function activarGaleria(contenedor){
@@ -690,7 +704,6 @@ async function enviarChecklistZona(){
    ============================================================ */
 async function renderPendientes(){
   const main = document.getElementById("main");
-  main.innerHTML = `<div class="cargando">Cargando pendientes...</div>`;
 
   if (estadoCierre.pantalla === "detalle"){
     main.innerHTML = "";
@@ -698,28 +711,46 @@ async function renderPendientes(){
     return;
   }
 
-  let registros;
-  try{
-    registros = await pedirListado();
-  }catch(err){
-    main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa la URL de Apps Script o tu internet.</div>`;
-    return;
+  if (cacheRegistros){
+    // Mostramos de una vez lo que ya teniamos guardado (no se espera a internet)...
+    pintarPendientes(cacheRegistros);
+    // ...y de fondo revisamos si hay algo nuevo.
+    actualizarEnSegundoPlano("pendientes");
+  } else {
+    main.innerHTML = `<div class="cargando">Cargando pendientes...</div>`;
+    let registros;
+    try{
+      registros = await pedirListado();
+    }catch(err){
+      main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa la URL de Apps Script o tu internet.</div>`;
+      return;
+    }
+    pintarPendientes(registros);
   }
+}
+
+function pintarPendientes(registros){
+  if (tabActual !== "pendientes" || estadoCierre.pantalla === "detalle") return;
+  const main = document.getElementById("main");
+  main.innerHTML = "";
 
   const pendientes = registros
     .filter(r => r.Estado === "Pendiente")
     .sort((a,b) => new Date(a.FechaApertura) - new Date(b.FechaApertura));
 
-  main.innerHTML = "";
-
   const encabezado = el(`
     <div class="tarjeta">
-      <h2>Puntos pendientes por cerrar</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2 style="margin:0;">Puntos pendientes por cerrar</h2>
+        <button id="btn-refrescar-pend" style="border:none;background:none;color:var(--verde-oscuro);font-size:16px;">🔄</button>
+      </div>
+      <p style="font-size:11px;color:var(--gris);margin:4px 0 8px;">${textoUltimaActualizacion()}</p>
       <p style="font-size:12px;color:var(--gris);margin:0;">
         ${pendientes.length === 0 ? "No hay pendientes abiertos en este momento 🎉" : pendientes.length + " punto(s) esperando limpieza"}
       </p>
     </div>
   `);
+  encabezado.querySelector("#btn-refrescar-pend").addEventListener("click", () => actualizarEnSegundoPlano("pendientes", true));
   main.appendChild(encabezado);
 
   if (pendientes.length === 0) return;
@@ -873,10 +904,35 @@ async function enviarCierre(tarjeta){
 /* ============================================================
    PESTAÑA 3: PANEL DE FREDY
    ============================================================ */
+let actualizandoEnSegundoPlano = false;
+
+async function actualizarEnSegundoPlano(tabIgnorado, manual){
+  if (actualizandoEnSegundoPlano) return;
+  actualizandoEnSegundoPlano = true;
+  if (manual) mostrarToast("Actualizando...");
+  try{
+    const registros = await pedirListado(true);
+    if (tabActual === "pendientes") pintarPendientes(registros);
+    else if (tabActual === "panel") pintarPanel(registros);
+  }catch(err){
+    if (manual) mostrarToast("No se pudo actualizar. Revisa tu internet.", true);
+  } finally {
+    actualizandoEnSegundoPlano = false;
+  }
+}
+
 async function renderPanel(){
   const main = document.getElementById("main");
-  main.innerHTML = `<div class="cargando">Cargando panel...</div>`;
 
+  if (cacheRegistros){
+    // Mostramos de una vez el ultimo panel que ya teniamos calculado...
+    pintarPanel(cacheRegistros);
+    // ...y de fondo revisamos si hay checklists nuevos.
+    actualizarEnSegundoPlano("panel");
+    return;
+  }
+
+  main.innerHTML = `<div class="cargando">Cargando panel...</div>`;
   let registros;
   try{
     registros = await pedirListado(true);
@@ -884,6 +940,13 @@ async function renderPanel(){
     main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa la URL de Apps Script o tu internet.</div>`;
     return;
   }
+  pintarPanel(registros);
+}
+
+function pintarPanel(registros){
+  if (tabActual !== "panel") return;
+  const main = document.getElementById("main");
+  main.innerHTML = "";
 
   const pendientesTotal = registros.filter(r => r.Estado === "Pendiente").length;
   const zonasConPendiente = new Set(registros.filter(r => r.Estado === "Pendiente").map(r => r.Zona)).size;
@@ -901,7 +964,14 @@ async function renderPanel(){
 
   const zonasVencidas = infoZonas.filter(info => info.pend.length === 0 && info.dias !== null && info.dias > DIAS_LIMITE_REVISION).length;
 
-  main.innerHTML = "";
+  const encabezadoPanel = el(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-size:11px;color:var(--gris);">${textoUltimaActualizacion()}</span>
+      <button id="btn-refrescar-panel" style="border:none;background:none;color:var(--verde-oscuro);font-size:13px;font-weight:700;">🔄 Actualizar</button>
+    </div>
+  `);
+  encabezadoPanel.querySelector("#btn-refrescar-panel").addEventListener("click", () => actualizarEnSegundoPlano("panel", true));
+  main.appendChild(encabezadoPanel);
 
   main.appendChild(el(`
     <div class="stats-grid">
@@ -944,7 +1014,7 @@ async function renderPanel(){
 
     const fila = el(`
       <div class="fila-zona-panel">
-        ${fotoMini ? `<img class="mini-thumb" src="${fotoMini}" data-foto="${fotoMini}">` : `<div class="mini-thumb mini-thumb-vacio">🧹</div>`}
+        ${fotoMini ? `<img class="mini-thumb" src="${fotoMini}" data-foto="${fotoMini}" loading="lazy">` : `<div class="mini-thumb mini-thumb-vacio">🧹</div>`}
         <div style="flex:1;">
           <div class="nombre">${info.zona.nombre}</div>
           <div class="sub">${sub}</div>
