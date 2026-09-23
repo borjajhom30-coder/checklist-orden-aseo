@@ -1083,11 +1083,15 @@ function mostrarDetalleZona(zona, registros){
    ============================================================ */
 render();
 
-// Registrar el Service Worker (necesario para que el navegador
-// ofrezca "Instalar aplicación" en el celular).
+// Esta app usaba antes un Service Worker para poder "instalarse" en el
+// celular, pero causaba fallos de conexion dificiles de detectar (guardaba
+// una version vieja en el celular y no se actualizaba sola). Se quito.
+// Este bloque limpia automaticamente, en los celulares que ya lo tenian
+// instalado, la version vieja que haya quedado guardada, para que deje de
+// interferir - sin que cada supervisor tenga que hacer nada manualmente.
 if ("serviceWorker" in navigator){
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(err => console.log("SW no registrado:", err));
+  navigator.serviceWorker.getRegistrations().then(registros => {
+    registros.forEach(reg => reg.unregister());
   });
 }
 </script>
