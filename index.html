@@ -233,13 +233,37 @@ const CONFIG = {
 firebase.initializeApp(FIREBASE_CONFIG);
 const db = firebase.firestore();
 
+function esperar(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Envia un POST al Apps Script. A veces, por la forma en que Google
+ * entrega la respuesta, la conexion falla de manera pasajera (una vez
+ * en varias) aunque la foto ya haya quedado guardada en Drive. Por eso
+ * reintenta un par de veces antes de darse por vencido, en lugar de
+ * mostrarle un error al supervisor por un fallo que se resuelve solo.
+ */
 async function enviarPost(payload){
-  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
-  });
-  return res.json();
+  const intentosMaximos = 3;
+  let ultimoError;
+
+  for (let intento = 1; intento <= intentosMaximos; intento++){
+    try{
+      const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      });
+      const datos = await res.json();
+      if (datos.ok) return datos;
+      ultimoError = new Error(datos.error || "Respuesta no valida del servidor");
+    }catch(err){
+      ultimoError = err;
+    }
+    if (intento < intentosMaximos) await esperar(1500 * intento);
+  }
+  throw ultimoError;
 }
 
 /**
