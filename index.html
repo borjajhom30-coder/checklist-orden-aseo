@@ -26,6 +26,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Checklist Guapa">
+
+<!-- Firebase (reemplaza a Google Sheets + Apps Script como motor de datos) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --verde-oscuro:#1b5e20;
@@ -189,7 +193,7 @@
   <h1>🍍 Orden y Aseo - Planta Empacadora</h1>
   <p>Agrícola Guapa · Cosecha</p>
 </header>
-<div id="banner-config">⚠ Falta configurar la URL de Apps Script en index.html (CONFIG.APPS_SCRIPT_URL)</div>
+<div id="banner-config">⚠ Falta configurar Firebase y/o Apps Script en index.html</div>
 
 <main id="main"></main>
 
@@ -201,12 +205,130 @@
 
 <script>
 /* ============================================================
-   CONFIGURACIÓN — reemplaza esta URL por la de tu Apps Script
-   (la obtienes en el paso "Implementar > Nueva implementación")
+   CONFIGURACIÓN DE FIREBASE — reemplaza esto por las llaves que
+   te entrega la consola de Firebase al registrar la app web
+   (Configuración del proyecto > Tus apps > el simbolo </> )
+   Esto se usa SOLO para los datos (zona, punto, cumple/no cumple,
+   supervisor, fechas). Las fotos siguen guardándose en Google Drive,
+   igual que antes.
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCVKSiRGAK7ADkXhmRXAzRT6dCe7_19Ne8",
+  authDomain: "checklist-guapa.firebaseapp.com",
+  projectId: "checklist-guapa",
+  storageBucket: "checklist-guapa.firebasestorage.app",
+  messagingSenderId: "444405247114",
+  appId: "1:444405247114:web:8393a089e2803fdfb15173"
+};
+
+/* ============================================================
+   CONFIGURACIÓN DE APPS SCRIPT — la misma URL de siempre. Ya no
+   guarda los datos del checklist (eso lo hace Firebase), pero
+   sigue recibiendo y guardando las fotos en Google Drive.
    ============================================================ */
 const CONFIG = {
   APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzSEPa1HhHtIHLE4vAEATI5J8yVPmJ2-g67TOQyHOPmWoJxUUkZNyRFgTDgn8IJBCK07Q/exec"
 };
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.firestore();
+
+async function enviarPost(payload){
+  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+
+/**
+ * Sube una lista de fotos (en base64) a Google Drive, a través del
+ * mismo Apps Script de siempre, y devuelve sus URLs para guardarlas
+ * en el registro de Firebase.
+ */
+async function subirFotos(fotosBase64, zona, punto, etiqueta){
+  if (!fotosBase64 || fotosBase64.length === 0) return [];
+  const resultado = await enviarPost({
+    action: "subir_fotos",
+    zona: zona,
+    punto: punto,
+    etiqueta: etiqueta,
+    fotos: fotosBase64
+  });
+  if (!resultado.ok) throw new Error(resultado.error || "No se pudieron subir las fotos");
+  return resultado.urls || [];
+}
+
+/**
+ * Guarda todos los puntos revisados de una zona en Firestore, en una
+ * sola operacion (equivalente a "crear_lote" en el Apps Script viejo).
+ */
+async function crearLote(zona, supervisor, items){
+  const lote = db.batch();
+  for (const item of items){
+    const urls = await subirFotos(item.fotos, zona, item.punto, "apertura");
+    const ref = db.collection("registros").doc();
+    lote.set(ref, {
+      Zona: zona,
+      Punto: item.punto,
+      SupervisorApertura: supervisor,
+      Estado: item.estado,
+      ObservacionApertura: item.observacion || "",
+      FotosApertura: urls.join(", "),
+      FechaApertura: firebase.firestore.Timestamp.now(),
+      FechaCierre: null,
+      SupervisorCierre: "",
+      ObservacionCierre: "",
+      FotosCierre: ""
+    });
+  }
+  await lote.commit();
+}
+
+/**
+ * Cierra un punto que estaba "Pendiente" (equivalente a "cerrar_pendiente").
+ */
+async function cerrarPendienteFirebase(id, supervisor, observacion, fotos){
+  const ref = db.collection("registros").doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("No se encontro el registro");
+  const datos = snap.data();
+  const urls = await subirFotos(fotos, datos.Zona, datos.Punto, "cierre");
+  await ref.update({
+    Estado: "Cerrado",
+    FechaCierre: firebase.firestore.Timestamp.now(),
+    SupervisorCierre: supervisor,
+    ObservacionCierre: observacion || "",
+    FotosCierre: urls.join(", ")
+  });
+}
+
+/**
+ * Trae todos los registros de Firestore, en el MISMO formato que usaba
+ * el resto de la app cuando venia de Google Sheets, para no tener que
+ * tocar el Panel, Pendientes ni las galerias de fotos.
+ */
+async function listarRegistrosFirebase(){
+  const snapshot = await db.collection("registros").get();
+  return snapshot.docs.map(doc => {
+    const d = doc.data();
+    return {
+      ID: doc.id,
+      FechaApertura: d.FechaApertura ? d.FechaApertura.toDate().toISOString() : "",
+      Zona: d.Zona || "",
+      Punto: d.Punto || "",
+      SupervisorApertura: d.SupervisorApertura || "",
+      Estado: d.Estado || "",
+      ObservacionApertura: d.ObservacionApertura || "",
+      FotosApertura: d.FotosApertura || "",
+      FechaCierre: d.FechaCierre ? d.FechaCierre.toDate().toISOString() : "",
+      SupervisorCierre: d.SupervisorCierre || "",
+      ObservacionCierre: d.ObservacionCierre || "",
+      FotosCierre: d.FotosCierre || ""
+    };
+  });
+}
 
 /* ============================================================
    ZONAS Y PUNTOS DE REVISIÓN
@@ -363,24 +485,12 @@ function comprimirImagen(archivo){
   });
 }
 
-async function enviarPost(payload){
-  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
-  });
-  return res.json();
-}
-
 async function pedirListado(forzar){
   if (cacheRegistros && !forzar) return cacheRegistros;
-  const res = await fetch(CONFIG.APPS_SCRIPT_URL + "?action=listar");
-  const data = await res.json();
-  if (data.ok){
-    cacheRegistros = data.registros;
-    cacheTimestamp = new Date();
-  }
-  return data.registros || [];
+  const registros = await listarRegistrosFirebase();
+  cacheRegistros = registros;
+  cacheTimestamp = new Date();
+  return registros;
 }
 
 function textoUltimaActualizacion(){
@@ -454,7 +564,7 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
 });
 
 function render(){
-  if (CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
+  if (FIREBASE_CONFIG.apiKey.indexOf("PON_AQUI") === 0 || CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
     document.getElementById("banner-config").style.display = "block";
   }
   if (tabActual === "registrar") renderRegistrar();
@@ -657,8 +767,8 @@ async function enviarChecklistZona(){
     }
   }
 
-  if (CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
-    mostrarToast("Falta configurar la URL de Apps Script", true);
+  if (FIREBASE_CONFIG.apiKey.indexOf("PON_AQUI") === 0 || CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
+    mostrarToast("Falta configurar Firebase o Apps Script", true);
     return;
   }
 
@@ -674,26 +784,15 @@ async function enviarChecklistZona(){
   }));
 
   try{
-    const resultado = await enviarPost({
-      action: "crear_lote",
-      zona: zona.nombre,
-      supervisor: estadoRegistrar.supervisor,
-      items: items
-    });
-    if (resultado.ok){
-      mostrarToast("Checklist guardado ✅");
-      cacheRegistros = null; // refrescar panel/pendientes en la próxima consulta
-      estadoRegistrar.pantalla = "inicio";
-      estadoRegistrar.zonaIndex = null;
-      estadoRegistrar.respuestas = {};
-      renderRegistrar();
-    } else {
-      mostrarToast("Error: " + resultado.error, true);
-      btn.disabled = false;
-      btn.textContent = "Guardar checklist de esta zona";
-    }
+    await crearLote(zona.nombre, estadoRegistrar.supervisor, items);
+    mostrarToast("Checklist guardado ✅");
+    cacheRegistros = null; // refrescar panel/pendientes en la próxima consulta
+    estadoRegistrar.pantalla = "inicio";
+    estadoRegistrar.zonaIndex = null;
+    estadoRegistrar.respuestas = {};
+    renderRegistrar();
   } catch(err){
-    mostrarToast("No se pudo conectar. Revisa tu internet.", true);
+    mostrarToast("Error al guardar: " + err.message, true);
     btn.disabled = false;
     btn.textContent = "Guardar checklist de esta zona";
   }
@@ -722,7 +821,7 @@ async function renderPendientes(){
     try{
       registros = await pedirListado();
     }catch(err){
-      main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa la URL de Apps Script o tu internet.</div>`;
+      main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa las llaves de Firebase o tu internet.</div>`;
       return;
     }
     pintarPendientes(registros);
@@ -877,25 +976,18 @@ async function enviarCierre(tarjeta){
   btn.textContent = "Guardando...";
 
   try{
-    const resultado = await enviarPost({
-      action: "cerrar_pendiente",
-      id: estadoCierre.registroSeleccionado.ID,
-      supervisor: estadoCierre.supervisor,
-      observacion: estadoCierre.observacion,
-      fotos: estadoCierre.fotos
-    });
-    if (resultado.ok){
-      mostrarToast("Pendiente cerrado ✅");
-      cacheRegistros = null;
-      estadoCierre.pantalla = "lista";
-      renderPendientes();
-    } else {
-      mostrarToast("Error: " + resultado.error, true);
-      btn.disabled = false;
-      btn.textContent = "Marcar como resuelto";
-    }
+    await cerrarPendienteFirebase(
+      estadoCierre.registroSeleccionado.ID,
+      estadoCierre.supervisor,
+      estadoCierre.observacion,
+      estadoCierre.fotos
+    );
+    mostrarToast("Pendiente cerrado ✅");
+    cacheRegistros = null;
+    estadoCierre.pantalla = "lista";
+    renderPendientes();
   }catch(err){
-    mostrarToast("No se pudo conectar. Revisa tu internet.", true);
+    mostrarToast("Error al guardar: " + err.message, true);
     btn.disabled = false;
     btn.textContent = "Marcar como resuelto";
   }
@@ -937,7 +1029,7 @@ async function renderPanel(){
   try{
     registros = await pedirListado(true);
   }catch(err){
-    main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa la URL de Apps Script o tu internet.</div>`;
+    main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa las llaves de Firebase o tu internet.</div>`;
     return;
   }
   pintarPanel(registros);
