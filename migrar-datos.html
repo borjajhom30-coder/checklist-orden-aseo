@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Migrar historial a Firebase</title>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+  body{font-family:-apple-system,Arial,sans-serif; max-width:640px; margin:30px auto; padding:0 16px; color:#212121;}
+  h1{font-size:20px;}
+  button{padding:12px 20px; font-size:15px; font-weight:700; background:#1b5e20; color:#fff; border:none; border-radius:8px; cursor:pointer;}
+  button:disabled{opacity:.5;}
+  #log{margin-top:20px; padding:14px; background:#f4f4f4; border-radius:8px; font-family:monospace; font-size:13px; white-space:pre-wrap; max-height:60vh; overflow:auto;}
+  .aviso{background:#fff3e0; color:#e65100; padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:16px;}
+</style>
+</head>
+<body>
+
+<h1>Migrar historial: Google Sheets → Firebase</h1>
+<div class="aviso">
+  Esta página es de UN SOLO USO. Sirve para copiar todo el historial que ya está guardado
+  en Google Sheets hacia Firebase, para no perder nada al cambiar de motor.
+  Es segura de ejecutar más de una vez (no duplica), pero normalmente solo se usa una vez.
+</div>
+
+<button id="btn-migrar">Iniciar migración</button>
+<div id="log">Esperando que le des clic al botón...</div>
+
+<script>
+/* ============================================================
+   CONFIGURACIÓN — mismas llaves de Firebase que usa index.html
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCVKSiRGAK7ADkXhmRXAzRT6dCe7_19Ne8",
+  authDomain: "checklist-guapa.firebaseapp.com",
+  projectId: "checklist-guapa",
+  storageBucket: "checklist-guapa.firebasestorage.app",
+  messagingSenderId: "444405247114",
+  appId: "1:444405247114:web:8393a089e2803fdfb15173"
+};
+
+// URL del Apps Script viejo, de donde se lee el historial actual.
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzSEPa1HhHtIHLE4vAEATI5J8yVPmJ2-g67TOQyHOPmWoJxUUkZNyRFgTDgn8IJBCK07Q/exec";
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.firestore();
+
+const logEl = document.getElementById("log");
+function log(msg){
+  logEl.textContent += "\n" + msg;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+document.getElementById("btn-migrar").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-migrar");
+  btn.disabled = true;
+  logEl.textContent = "Iniciando...";
+
+  try{
+    log("Leyendo el historial desde Google Sheets...");
+    const res = await fetch(APPS_SCRIPT_URL + "?action=listar");
+    const data = await res.json();
+    if (!data.ok) throw new Error("El Apps Script respondió con un error");
+    const registros = data.registros || [];
+    log(`Se encontraron ${registros.length} registro(s) para migrar.`);
+
+    let migrados = 0;
+    for (const r of registros){
+      const doc = {
+        Zona: r.Zona || "",
+        Punto: r.Punto || "",
+        SupervisorApertura: r.SupervisorApertura || "",
+        Estado: r.Estado || "",
+        ObservacionApertura: r.ObservacionApertura || "",
+        FotosApertura: r.FotosApertura || "",
+        FechaApertura: r.FechaApertura ? firebase.firestore.Timestamp.fromDate(new Date(r.FechaApertura)) : firebase.firestore.Timestamp.now(),
+        FechaCierre: r.FechaCierre ? firebase.firestore.Timestamp.fromDate(new Date(r.FechaCierre)) : null,
+        SupervisorCierre: r.SupervisorCierre || "",
+        ObservacionCierre: r.ObservacionCierre || "",
+        FotosCierre: r.FotosCierre || ""
+      };
+      // Usa el mismo ID que ya tenia en Sheets, para que si se corre dos
+      // veces no se dupliquen los registros (simplemente se sobrescriben).
+      await db.collection("registros").doc(r.ID).set(doc);
+      migrados++;
+      if (migrados % 10 === 0 || migrados === registros.length){
+        log(`Migrados ${migrados} de ${registros.length}...`);
+      }
+    }
+
+    log("\n✅ Migración completada. Se copiaron " + migrados + " registro(s) a Firebase.");
+    log("Las fotos siguen usando los links de Google Drive que ya existian (no fue necesario volver a subirlas).");
+  }catch(err){
+    log("\n❌ Ocurrió un error: " + err.message);
+  }
+
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>
