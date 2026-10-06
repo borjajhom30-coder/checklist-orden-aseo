@@ -1266,10 +1266,11 @@ async function crearLoteEquipo(nombreEquipo, supervisor, items){
 function ultimoEstadoEquipo(nombreEquipo, registros){
   const deEquipo = (registros || []).filter(r => r.equipo === nombreEquipo);
   if (deEquipo.length === 0) return null;
-  const ultimaFecha = deEquipo.reduce((max, r) => (!max || new Date(r.fecha) > new Date(max)) ? r.fecha : max, null);
-  const deEsaFecha = deEquipo.filter(r => r.fecha === ultimaFecha);
-  const hayMalo = deEsaFecha.some(r => r.estado === "Malo");
-  return { estado: hayMalo ? "Malo" : "Bueno" };
+  // El badge refleja si el equipo tiene AHORA algun punto malo sin corregir (resuelto = false),
+  // sin importar cuando se reporto. Asi, al marcarlo "corregido" (o al volver a encontrarlo
+  // Bueno en una revision posterior), el badge pasa a verde de inmediato.
+  const hayPendiente = deEquipo.some(r => r.estado === "Malo" && !r.resuelto);
+  return { estado: hayPendiente ? "Malo" : "Bueno" };
 }
 
 function obtenerPendientesEquipos(registros){
