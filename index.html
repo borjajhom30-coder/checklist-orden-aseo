@@ -1219,10 +1219,14 @@ let cacheEquiposTimestamp = null;
 let actualizandoEquiposEnSegundoPlano = false;
 
 const estadoEquipos = {
-  pantalla: "inicio", // inicio | equipo
+  pantalla: "inicio", // inicio | equipo | pendientes-equipo | detalle-pendiente
   supervisor: "",
   equipoIndex: null,
-  respuestas: {}
+  respuestas: {},
+  equipoSeleccionadoPendiente: null,
+  pendienteSeleccionado: null,
+  corregirObservacion: "",
+  corregirFotos: []
 };
 
 async function listarEquiposSupabase(){
@@ -1268,12 +1272,56 @@ function ultimoEstadoEquipo(nombreEquipo, registros){
   return { estado: hayMalo ? "Malo" : "Bueno" };
 }
 
+function obtenerPendientesEquipos(registros){
+  return (registros || [])
+    .filter(r => r.estado === "Malo" && !r.resuelto)
+    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+}
+
+async function resolverPendienteEquipo(id, observacion, fotos){
+  const urls = await subirFotos(fotos, "correccion-equipos", String(id).slice(0, 8), "correccion");
+  const { error } = await sb
+    .from("equipos_registros")
+    .update({
+      resuelto: true,
+      fecha_resuelto: new Date().toISOString(),
+      observacion_resuelto: observacion || "",
+      fotos_resuelto: urls
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+async function autoResolverPuntosBuenos(nombreEquipo, puntosBuenos){
+  if (!puntosBuenos || puntosBuenos.length === 0) return;
+  const { error } = await sb
+    .from("equipos_registros")
+    .update({ resuelto: true, fecha_resuelto: new Date().toISOString() })
+    .eq("equipo", nombreEquipo)
+    .in("punto", puntosBuenos)
+    .eq("estado", "Malo")
+    .eq("resuelto", false);
+  if (error) throw new Error(error.message);
+}
+
 async function renderEquipos(){
   const main = document.getElementById("main");
 
   if (estadoEquipos.pantalla === "equipo"){
     main.innerHTML = "";
     main.appendChild(vistaEquipoChecklist());
+    return;
+  }
+
+  if (estadoEquipos.pantalla === "pendientes-equipo"){
+    main.innerHTML = "";
+    main.appendChild(vistaPendientesEquipo());
+    return;
+  }
+
+  if (estadoEquipos.pantalla === "detalle-pendiente"){
+    main.innerHTML = "";
+    main.appendChild(vistaDetallePendienteEquipo());
     return;
   }
 
@@ -1310,6 +1358,19 @@ function pintarInicioEquipos(registros){
   const main = document.getElementById("main");
   main.innerHTML = "";
 
+  const pendientes = obtenerPendientesEquipos(registros);
+  if (pendientes.length > 0){
+    const tarjetaPend = el(`
+      <div class="tarjeta">
+        <h2 style="color:var(--rojo);">⚠ Pendientes por corregir (${pendientes.length})</h2>
+        <div id="lista-pendientes-equipos"></div>
+      </div>
+    `);
+    const listaPend = tarjetaPend.querySelector("#lista-pendientes-equipos");
+    pendientes.forEach(p => listaPend.appendChild(itemPendienteEquipoEl(p)));
+    main.appendChild(tarjetaPend);
+  }
+
   const tarjetaSup = el(`
     <div class="tarjeta">
       <h2>1. ¿Quién va a revisar?</h2>
@@ -1342,14 +1403,180 @@ function pintarInicioEquipos(registros){
         mostrarToast("Primero selecciona tu nombre", true);
         return;
       }
-      estadoEquipos.equipoIndex = idx;
-      estadoEquipos.respuestas = {};
-      estadoEquipos.pantalla = "equipo";
+      const tienePendiente = pendientes.some(p => p.equipo === equipo.nombre);
+      if (tienePendiente){
+        estadoEquipos.equipoSeleccionadoPendiente = equipo.nombre;
+        estadoEquipos.pantalla = "pendientes-equipo";
+      } else {
+        estadoEquipos.equipoIndex = idx;
+        estadoEquipos.respuestas = {};
+        estadoEquipos.pantalla = "equipo";
+      }
       renderEquipos();
     });
     grilla.appendChild(b);
   });
   main.appendChild(tarjetaEquipos);
+}
+
+function itemPendienteEquipoEl(p){
+  const dias = diasDesde(p.fecha);
+  const item = el(`
+    <div class="item-pendiente">
+      <div class="zona-nombre">${p.equipo}</div>
+      <p class="punto-txt">${p.punto}</p>
+      <div class="meta">Reportado por ${p.supervisor} · ${formatearFecha(p.fecha)}</div>
+      <div class="meta">"${p.observacion || ""}"</div>
+      ${renderGaleria(p.fotos)}
+      <span class="dias-abierto ${dias >= 1 ? "dias-alerta" : "dias-ok"}">
+        ${dias === 0 ? "Reportado hoy" : dias + " día(s) sin resolver"}
+      </span>
+      <br><button class="boton secundario" style="margin-top:10px;">Marcar como corregido</button>
+    </div>
+  `);
+  activarGaleria(item);
+  item.querySelector("button").addEventListener("click", () => {
+    estadoEquipos.pendienteSeleccionado = p;
+    estadoEquipos.corregirObservacion = "";
+    estadoEquipos.corregirFotos = [];
+    estadoEquipos.pantalla = "detalle-pendiente";
+    renderEquipos();
+  });
+  return item;
+}
+
+function vistaPendientesEquipo(){
+  const nombreEquipo = estadoEquipos.equipoSeleccionadoPendiente;
+  const pendientes = obtenerPendientesEquipos(cacheEquipos).filter(p => p.equipo === nombreEquipo);
+  const idxCatalogo = EQUIPOS.findIndex(e => e.nombre === nombreEquipo);
+
+  const cont = el(`<div></div>`);
+  const volver = el(`<button class="volver">‹ Volver a equipos</button>`);
+  volver.addEventListener("click", () => {
+    estadoEquipos.pantalla = "inicio";
+    renderEquipos();
+  });
+  cont.appendChild(volver);
+
+  const tarjeta = el(`
+    <div class="tarjeta">
+      <h2>${nombreEquipo}</h2>
+      <p style="font-size:12px;color:var(--gris);margin-top:-6px;">Puntos pendientes por corregir</p>
+      <div id="lista-corregir"></div>
+    </div>
+  `);
+  const lista = tarjeta.querySelector("#lista-corregir");
+  pendientes.forEach(p => lista.appendChild(itemPendienteEquipoEl(p)));
+  cont.appendChild(tarjeta);
+
+  const btnCompleta = el(`<button class="boton secundario" id="btn-revision-completa">Hacer revisión completa de este equipo</button>`);
+  btnCompleta.addEventListener("click", () => {
+    estadoEquipos.equipoIndex = idxCatalogo;
+    estadoEquipos.respuestas = {};
+    estadoEquipos.pantalla = "equipo";
+    renderEquipos();
+  });
+  cont.appendChild(btnCompleta);
+
+  return cont;
+}
+
+function vistaDetallePendienteEquipo(){
+  const p = estadoEquipos.pendienteSeleccionado;
+  const cont = el(`<div></div>`);
+
+  const volver = el(`<button class="volver">‹ Volver</button>`);
+  volver.addEventListener("click", () => {
+    estadoEquipos.pantalla = "inicio";
+    renderEquipos();
+  });
+  cont.appendChild(volver);
+
+  const dias = diasDesde(p.fecha);
+
+  const tarjeta = el(`
+    <div class="tarjeta">
+      <div class="zona-nombre">${p.equipo}</div>
+      <h2>${p.punto}</h2>
+      <p style="font-size:13px;">Observación original: "${p.observacion || ""}"</p>
+      <p style="font-size:12px;color:var(--gris);">Reportado por ${p.supervisor} · ${formatearFecha(p.fecha)} · lleva ${dias === 0 ? "menos de 1 día" : dias + " día(s)"} malo</p>
+      ${renderGaleria(p.fotos)}
+
+      <label class="campo">Observación de corrección (opcional)</label>
+      <textarea rows="2" id="obs-correccion-equipo" placeholder="Ej: Se cambió el motorreductor"></textarea>
+
+      <label class="campo">Foto de evidencia de que ya quedó corregido</label>
+      <label class="input-foto">📷 Tomar / subir foto
+        <input type="file" accept="image/*" capture="environment" multiple id="foto-correccion-equipo">
+      </label>
+      <div class="fotos-preview" id="preview-correccion-equipo"></div>
+
+      <button class="boton" id="btn-corregir-equipo">Marcar como corregido</button>
+    </div>
+  `);
+
+  tarjeta.querySelector("#obs-correccion-equipo").addEventListener("input", (e) => {
+    estadoEquipos.corregirObservacion = e.target.value;
+  });
+  tarjeta.querySelector("#foto-correccion-equipo").addEventListener("change", async (e) => {
+    const archivos = Array.from(e.target.files);
+    for (const archivo of archivos){
+      try{
+        const dataUrl = await comprimirImagen(archivo);
+        estadoEquipos.corregirFotos.push(dataUrl);
+      }catch(err){ console.error(err); }
+    }
+    e.target.value = "";
+    pintarPreviewCorreccionEquipo(tarjeta);
+  });
+  pintarPreviewCorreccionEquipo(tarjeta);
+
+  tarjeta.querySelector("#btn-corregir-equipo").addEventListener("click", () => enviarCorreccionEquipo(tarjeta));
+  activarGaleria(tarjeta);
+
+  cont.appendChild(tarjeta);
+  return cont;
+}
+
+function pintarPreviewCorreccionEquipo(tarjeta){
+  const cont = tarjeta.querySelector("#preview-correccion-equipo");
+  cont.innerHTML = "";
+  estadoEquipos.corregirFotos.forEach((foto, i) => {
+    const mini = el(`<div class="foto-mini"><img src="${foto}"><button class="quitar" type="button">✕</button></div>`);
+    mini.querySelector(".quitar").addEventListener("click", () => {
+      estadoEquipos.corregirFotos.splice(i, 1);
+      pintarPreviewCorreccionEquipo(tarjeta);
+    });
+    cont.appendChild(mini);
+  });
+}
+
+async function enviarCorreccionEquipo(tarjeta){
+  if (estadoEquipos.corregirFotos.length === 0){
+    mostrarToast("Sube al menos una foto de evidencia", true);
+    return;
+  }
+
+  const btn = tarjeta.querySelector("#btn-corregir-equipo");
+  btn.disabled = true;
+  btn.textContent = "Guardando...";
+
+  try{
+    await resolverPendienteEquipo(
+      estadoEquipos.pendienteSeleccionado.id,
+      estadoEquipos.corregirObservacion,
+      estadoEquipos.corregirFotos
+    );
+    mostrarToast("Marcado como corregido ✅");
+    cacheEquipos = null;
+    estadoEquipos.pantalla = "inicio";
+    estadoEquipos.pendienteSeleccionado = null;
+    renderEquipos();
+  } catch(err){
+    mostrarToast("Error al guardar: " + err.message, true);
+    btn.disabled = false;
+    btn.textContent = "Marcar como corregido";
+  }
 }
 
 function vistaEquipoChecklist(){
@@ -1504,6 +1731,8 @@ async function enviarChecklistEquipo(){
 
   try{
     await crearLoteEquipo(equipo.nombre, estadoEquipos.supervisor, items);
+    const puntosBuenos = items.filter(i => i.estado === "Bueno").map(i => i.punto);
+    await autoResolverPuntosBuenos(equipo.nombre, puntosBuenos);
     mostrarToast("Revisión guardada ✅");
     cacheEquipos = null;
     estadoEquipos.pantalla = "inicio";
