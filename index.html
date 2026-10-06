@@ -22,14 +22,11 @@
 <meta name="theme-color" content="#1b5e20">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Checklist Guapa">
-
-<!-- Firebase (reemplaza a Google Sheets + Apps Script como motor de datos) -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --verde-oscuro:#1b5e20;
@@ -193,7 +190,7 @@
   <h1>🍍 Orden y Aseo - Planta Empacadora</h1>
   <p>Agrícola Guapa · Cosecha</p>
 </header>
-<div id="banner-config">⚠ Falta configurar Firebase y/o Apps Script en index.html</div>
+<div id="banner-config">⚠ Falta configurar las llaves de Supabase en index.html (SUPABASE_URL / SUPABASE_ANON_KEY)</div>
 
 <main id="main"></main>
 
@@ -205,153 +202,151 @@
 
 <script>
 /* ============================================================
-   CONFIGURACIÓN DE FIREBASE — reemplaza esto por las llaves que
-   te entrega la consola de Firebase al registrar la app web
-   (Configuración del proyecto > Tus apps > el simbolo </> )
-   Esto se usa SOLO para los datos (zona, punto, cumple/no cumple,
-   supervisor, fechas). Las fotos siguen guardándose en Google Drive,
-   igual que antes.
+   CONFIGURACIÓN DE SUPABASE — reemplaza a Google Sheets, Apps
+   Script y Firebase por completo. Las fotos se guardan en el
+   bucket de Storage "fotos-checklist", y los datos en la tabla
+   "registros".
    ============================================================ */
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyCVKSiRGAK7ADkXhmRXAzRT6dCe7_19Ne8",
-  authDomain: "checklist-guapa.firebaseapp.com",
-  projectId: "checklist-guapa",
-  storageBucket: "checklist-guapa.firebasestorage.app",
-  messagingSenderId: "444405247114",
-  appId: "1:444405247114:web:8393a089e2803fdfb15173"
-};
+const SUPABASE_URL = "https://wxdtgwqegefidhqcfxck.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4ZHRnd3FlZ2VmaWRocWNmeGNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMTQwNzMsImV4cCI6MjEwNjg5MDA3M30.nKmxNSqNDFkE3XMzlmVVQpg-4XZYH9NnLbVNWMqQs1E";
+const NOMBRE_BUCKET_FOTOS = "fotos-checklist";
 
-/* ============================================================
-   CONFIGURACIÓN DE APPS SCRIPT — la misma URL de siempre. Ya no
-   guarda los datos del checklist (eso lo hace Firebase), pero
-   sigue recibiendo y guardando las fotos en Google Drive.
-   ============================================================ */
-const CONFIG = {
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzSEPa1HhHtIHLE4vAEATI5J8yVPmJ2-g67TOQyHOPmWoJxUUkZNyRFgTDgn8IJBCK07Q/exec"
-};
-
-firebase.initializeApp(FIREBASE_CONFIG);
-const db = firebase.firestore();
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function esperar(ms){
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Envia un POST al Apps Script. A veces, por la forma en que Google
- * entrega la respuesta, la conexion falla de manera pasajera (una vez
- * en varias) aunque la foto ya haya quedado guardada en Drive. Por eso
- * reintenta un par de veces antes de darse por vencido, en lugar de
- * mostrarle un error al supervisor por un fallo que se resuelve solo.
- */
-async function enviarPost(payload){
-  const intentosMaximos = 3;
+async function conReintentos(fn, intentosMaximos){
+  intentosMaximos = intentosMaximos || 3;
   let ultimoError;
-
   for (let intento = 1; intento <= intentosMaximos; intento++){
     try{
-      const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload)
-      });
-      const datos = await res.json();
-      if (datos.ok) return datos;
-      ultimoError = new Error(datos.error || "Respuesta no valida del servidor");
+      return await fn();
     }catch(err){
       ultimoError = err;
+      if (intento < intentosMaximos) await esperar(1200 * intento);
     }
-    if (intento < intentosMaximos) await esperar(1500 * intento);
   }
   throw ultimoError;
 }
 
+function limpiarNombreArchivo(texto){
+  return (texto || "")
+    .toString()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .substring(0, 80);
+}
+
+function dataUrlABlob(dataUrl){
+  const partes = dataUrl.split(",");
+  const tipo = partes[0].match(/data:(.*);base64/)[1];
+  const binario = atob(partes[1]);
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++){
+    bytes[i] = binario.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: tipo });
+}
+
 /**
- * Sube una lista de fotos (en base64) a Google Drive, a través del
- * mismo Apps Script de siempre, y devuelve sus URLs para guardarlas
- * en el registro de Firebase.
+ * Sube una lista de fotos (en base64) al bucket de Supabase Storage
+ * y devuelve sus URLs públicas, para guardarlas en el registro.
  */
 async function subirFotos(fotosBase64, zona, punto, etiqueta){
-  if (!fotosBase64 || fotosBase64.length === 0) return [];
-  const resultado = await enviarPost({
-    action: "subir_fotos",
-    zona: zona,
-    punto: punto,
-    etiqueta: etiqueta,
-    fotos: fotosBase64
-  });
-  if (!resultado.ok) throw new Error(resultado.error || "No se pudieron subir las fotos");
-  return resultado.urls || [];
+  const urls = [];
+  if (!fotosBase64 || fotosBase64.length === 0) return urls;
+
+  for (let i = 0; i < fotosBase64.length; i++){
+    const blob = dataUrlABlob(fotosBase64[i]);
+    const ruta = `${limpiarNombreArchivo(zona)}/${Date.now()}_${i}_${etiqueta}.jpg`;
+    await conReintentos(async () => {
+      const { error } = await sb.storage.from(NOMBRE_BUCKET_FOTOS).upload(ruta, blob, {
+        contentType: "image/jpeg"
+      });
+      if (error) throw new Error(error.message);
+    });
+    const { data } = sb.storage.from(NOMBRE_BUCKET_FOTOS).getPublicUrl(ruta);
+    urls.push(data.publicUrl);
+  }
+  return urls;
 }
 
 /**
- * Guarda todos los puntos revisados de una zona en Firestore, en una
- * sola operacion (equivalente a "crear_lote" en el Apps Script viejo).
+ * Guarda todos los puntos revisados de una zona en la tabla
+ * "registros" de Supabase, en una sola operacion.
  */
 async function crearLote(zona, supervisor, items){
-  const lote = db.batch();
+  const filas = [];
   for (const item of items){
     const urls = await subirFotos(item.fotos, zona, item.punto, "apertura");
-    const ref = db.collection("registros").doc();
-    lote.set(ref, {
-      Zona: zona,
-      Punto: item.punto,
-      SupervisorApertura: supervisor,
-      Estado: item.estado,
-      ObservacionApertura: item.observacion || "",
-      FotosApertura: urls.join(", "),
-      FechaApertura: firebase.firestore.Timestamp.now(),
-      FechaCierre: null,
-      SupervisorCierre: "",
-      ObservacionCierre: "",
-      FotosCierre: ""
+    filas.push({
+      zona: zona,
+      punto: item.punto,
+      supervisor_apertura: supervisor,
+      estado: item.estado,
+      observacion_apertura: item.observacion || "",
+      fotos_apertura: urls
     });
   }
-  await lote.commit();
+  const { error } = await sb.from("registros").insert(filas);
+  if (error) throw new Error(error.message);
 }
 
 /**
- * Cierra un punto que estaba "Pendiente" (equivalente a "cerrar_pendiente").
+ * Cierra un punto que habia quedado en estado "Pendiente".
  */
-async function cerrarPendienteFirebase(id, supervisor, observacion, fotos){
-  const ref = db.collection("registros").doc(id);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error("No se encontro el registro");
-  const datos = snap.data();
-  const urls = await subirFotos(fotos, datos.Zona, datos.Punto, "cierre");
-  await ref.update({
-    Estado: "Cerrado",
-    FechaCierre: firebase.firestore.Timestamp.now(),
-    SupervisorCierre: supervisor,
-    ObservacionCierre: observacion || "",
-    FotosCierre: urls.join(", ")
-  });
+async function cerrarPendienteSupabase(id, supervisor, observacion, fotos){
+  const { data: filaActual, error: errSel } = await sb
+    .from("registros")
+    .select("zona, punto")
+    .eq("id", id)
+    .single();
+  if (errSel) throw new Error(errSel.message);
+
+  const urls = await subirFotos(fotos, filaActual.zona, filaActual.punto, "cierre");
+
+  const { error } = await sb
+    .from("registros")
+    .update({
+      estado: "Cerrado",
+      fecha_cierre: new Date().toISOString(),
+      supervisor_cierre: supervisor,
+      observacion_cierre: observacion || "",
+      fotos_cierre: urls
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 /**
- * Trae todos los registros de Firestore, en el MISMO formato que usaba
- * el resto de la app cuando venia de Google Sheets, para no tener que
- * tocar el Panel, Pendientes ni las galerias de fotos.
+ * Trae todos los registros de Supabase y los entrega con el mismo
+ * formato (nombres en MayúsculaInicial, fotos como texto separado
+ * por comas) que ya usa el resto de la app, para no tener que
+ * tocar las pantallas de Pendientes y Panel.
  */
-async function listarRegistrosFirebase(){
-  const snapshot = await db.collection("registros").get();
-  return snapshot.docs.map(doc => {
-    const d = doc.data();
-    return {
-      ID: doc.id,
-      FechaApertura: d.FechaApertura ? d.FechaApertura.toDate().toISOString() : "",
-      Zona: d.Zona || "",
-      Punto: d.Punto || "",
-      SupervisorApertura: d.SupervisorApertura || "",
-      Estado: d.Estado || "",
-      ObservacionApertura: d.ObservacionApertura || "",
-      FotosApertura: d.FotosApertura || "",
-      FechaCierre: d.FechaCierre ? d.FechaCierre.toDate().toISOString() : "",
-      SupervisorCierre: d.SupervisorCierre || "",
-      ObservacionCierre: d.ObservacionCierre || "",
-      FotosCierre: d.FotosCierre || ""
-    };
-  });
+async function listarRegistrosSupabase(){
+  const { data, error } = await sb
+    .from("registros")
+    .select("*")
+    .order("fecha_apertura", { ascending: true });
+  if (error) throw new Error(error.message);
+
+  return data.map(fila => ({
+    ID: fila.id,
+    FechaApertura: fila.fecha_apertura,
+    Zona: fila.zona,
+    Punto: fila.punto,
+    SupervisorApertura: fila.supervisor_apertura,
+    Estado: fila.estado,
+    ObservacionApertura: fila.observacion_apertura || "",
+    FotosApertura: (fila.fotos_apertura || []).join(", "),
+    FechaCierre: fila.fecha_cierre || "",
+    SupervisorCierre: fila.supervisor_cierre || "",
+    ObservacionCierre: fila.observacion_cierre || "",
+    FotosCierre: (fila.fotos_cierre || []).join(", ")
+  }));
 }
 
 /* ============================================================
@@ -511,7 +506,7 @@ function comprimirImagen(archivo){
 
 async function pedirListado(forzar){
   if (cacheRegistros && !forzar) return cacheRegistros;
-  const registros = await listarRegistrosFirebase();
+  const registros = await listarRegistrosSupabase();
   cacheRegistros = registros;
   cacheTimestamp = new Date();
   return registros;
@@ -588,7 +583,7 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
 });
 
 function render(){
-  if (FIREBASE_CONFIG.apiKey.indexOf("PON_AQUI") === 0 || CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
+  if (SUPABASE_URL.indexOf("PON_AQUI") === 0 || SUPABASE_ANON_KEY.indexOf("PON_AQUI") === 0){
     document.getElementById("banner-config").style.display = "block";
   }
   if (tabActual === "registrar") renderRegistrar();
@@ -791,8 +786,8 @@ async function enviarChecklistZona(){
     }
   }
 
-  if (FIREBASE_CONFIG.apiKey.indexOf("PON_AQUI") === 0 || CONFIG.APPS_SCRIPT_URL.indexOf("PON_AQUI") === 0){
-    mostrarToast("Falta configurar Firebase o Apps Script", true);
+  if (SUPABASE_URL.indexOf("PON_AQUI") === 0 || SUPABASE_ANON_KEY.indexOf("PON_AQUI") === 0){
+    mostrarToast("Falta configurar las llaves de Supabase", true);
     return;
   }
 
@@ -845,7 +840,7 @@ async function renderPendientes(){
     try{
       registros = await pedirListado();
     }catch(err){
-      main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa las llaves de Firebase o tu internet.</div>`;
+      main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa las llaves de Supabase o tu internet.</div>`;
       return;
     }
     pintarPendientes(registros);
@@ -1000,7 +995,7 @@ async function enviarCierre(tarjeta){
   btn.textContent = "Guardando...";
 
   try{
-    await cerrarPendienteFirebase(
+    await cerrarPendienteSupabase(
       estadoCierre.registroSeleccionado.ID,
       estadoCierre.supervisor,
       estadoCierre.observacion,
@@ -1053,7 +1048,7 @@ async function renderPanel(){
   try{
     registros = await pedirListado(true);
   }catch(err){
-    main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa las llaves de Firebase o tu internet.</div>`;
+    main.innerHTML = `<div class="vacio">No se pudo conectar. Revisa las llaves de Supabase o tu internet.</div>`;
     return;
   }
   pintarPanel(registros);
