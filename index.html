@@ -198,6 +198,7 @@
   <button data-tab="registrar" class="activo"><span class="icono">📋</span>Registrar</button>
   <button data-tab="pendientes"><span class="icono">🧹</span>Pendientes</button>
   <button data-tab="panel"><span class="icono">📊</span>Panel</button>
+  <button data-tab="equipos"><span class="icono">🛠️</span>Equipos</button>
 </nav>
 
 <script>
@@ -588,6 +589,7 @@ function render(){
   }
   if (tabActual === "registrar") renderRegistrar();
   else if (tabActual === "pendientes") renderPendientes();
+  else if (tabActual === "equipos") renderEquipos();
   else renderPanel();
 }
 
@@ -1187,6 +1189,332 @@ function mostrarDetalleZona(zona, registros){
   fondo.addEventListener("click", (e) => { if (e.target === fondo) fondo.remove(); });
 
   document.body.appendChild(fondo);
+}
+
+/* ============================================================
+   PESTAÑA 4: EQUIPOS
+   ============================================================ */
+const EQUIPOS_BASE = [
+  { nombre: "Elevador", puntos: ["Elevador", "Tableros eléctricos", "Bomba hidráulica 1", "Bomba hidráulica 2"] },
+  { nombre: "Banda Sumergida", puntos: ["Kit de arrastre de banda", "Motorreductor", "Tubos o pasta de banda", "Tablero eléctrico"] },
+  { nombre: "Banda de clasificación", puntos: ["Kit de arrastre de banda", "Motorreductor", "Tubos o pasta de banda", "Tablero eléctrico"] },
+  { nombre: "Banda de empaque", puntos: ["Kit de arrastre de banda", "Motorreductor", "Tubos o pasta de banda", "Tablero eléctrico"] },
+  { nombre: "Túnel de fungicida", puntos: ["Bomba de fungicida", "Tablero", "Tubería de recirculación"] },
+  { nombre: "Zona de secado de fruta", puntos: ["Tablero", "Motores de secado"] },
+  { nombre: "Puerta de cuarto frío", puntos: ["Puerta"] },
+  { nombre: "Puerta de preenfrío", puntos: ["Puerta"] },
+  { nombre: "Puerta de cuarto de sostenimiento", puntos: ["Puerta"] },
+  { nombre: "Puerta de servicio", puntos: ["Puerta"] },
+  { nombre: "Puerta de muelle", puntos: ["Sensores", "Cadena", "Motor de la puerta"] }
+];
+const EQUIPOS = EQUIPOS_BASE.concat(
+  Array.from({ length: 10 }, (_, i) => ({
+    nombre: "Pallet Jack " + String(i + 1).padStart(2, "0"),
+    puntos: ["Llantas", "Balineras", "Gato", "Chasis"]
+  }))
+);
+
+let cacheEquipos = null;
+let cacheEquiposTimestamp = null;
+let actualizandoEquiposEnSegundoPlano = false;
+
+const estadoEquipos = {
+  pantalla: "inicio", // inicio | equipo
+  supervisor: "",
+  equipoIndex: null,
+  respuestas: {}
+};
+
+async function listarEquiposSupabase(){
+  const { data, error } = await sb
+    .from("equipos_registros")
+    .select("*")
+    .order("fecha", { ascending: true });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function pedirListadoEquipos(forzar){
+  if (cacheEquipos && !forzar) return cacheEquipos;
+  const registros = await listarEquiposSupabase();
+  cacheEquipos = registros;
+  cacheEquiposTimestamp = new Date();
+  return registros;
+}
+
+async function crearLoteEquipo(nombreEquipo, supervisor, items){
+  const filas = [];
+  for (const item of items){
+    const urls = await subirFotos(item.fotos, nombreEquipo, item.punto, "equipo");
+    filas.push({
+      equipo: nombreEquipo,
+      punto: item.punto,
+      supervisor: supervisor,
+      estado: item.estado,
+      observacion: item.observacion || "",
+      fotos: urls
+    });
+  }
+  const { error } = await sb.from("equipos_registros").insert(filas);
+  if (error) throw new Error(error.message);
+}
+
+function ultimoEstadoEquipo(nombreEquipo, registros){
+  const deEquipo = (registros || []).filter(r => r.equipo === nombreEquipo);
+  if (deEquipo.length === 0) return null;
+  const ultimaFecha = deEquipo.reduce((max, r) => (!max || new Date(r.fecha) > new Date(max)) ? r.fecha : max, null);
+  const deEsaFecha = deEquipo.filter(r => r.fecha === ultimaFecha);
+  const hayMalo = deEsaFecha.some(r => r.estado === "Malo");
+  return { estado: hayMalo ? "Malo" : "Bueno" };
+}
+
+async function renderEquipos(){
+  const main = document.getElementById("main");
+
+  if (estadoEquipos.pantalla === "equipo"){
+    main.innerHTML = "";
+    main.appendChild(vistaEquipoChecklist());
+    return;
+  }
+
+  if (cacheEquipos){
+    pintarInicioEquipos(cacheEquipos);
+    actualizarEquiposEnSegundoPlano();
+  } else {
+    main.innerHTML = `<div class="cargando">Cargando equipos...</div>`;
+    let registros = [];
+    try{
+      registros = await pedirListadoEquipos();
+    }catch(err){
+      registros = [];
+    }
+    pintarInicioEquipos(registros);
+  }
+}
+
+async function actualizarEquiposEnSegundoPlano(){
+  if (actualizandoEquiposEnSegundoPlano) return;
+  actualizandoEquiposEnSegundoPlano = true;
+  try{
+    const registros = await pedirListadoEquipos(true);
+    if (tabActual === "equipos" && estadoEquipos.pantalla === "inicio") pintarInicioEquipos(registros);
+  }catch(err){
+    // silencioso: se queda con lo que ya habia en pantalla
+  } finally {
+    actualizandoEquiposEnSegundoPlano = false;
+  }
+}
+
+function pintarInicioEquipos(registros){
+  if (tabActual !== "equipos" || estadoEquipos.pantalla !== "inicio") return;
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+
+  const tarjetaSup = el(`
+    <div class="tarjeta">
+      <h2>1. ¿Quién va a revisar?</h2>
+      <label class="campo">Supervisor</label>
+      <select id="sel-supervisor-equipo">
+        <option value="">Selecciona tu nombre...</option>
+        ${SUPERVISORES.map(s => `<option value="${s}" ${estadoEquipos.supervisor===s?"selected":""}>${s}</option>`).join("")}
+      </select>
+    </div>
+  `);
+  tarjetaSup.querySelector("#sel-supervisor-equipo").addEventListener("change", (e) => {
+    estadoEquipos.supervisor = e.target.value;
+  });
+  main.appendChild(tarjetaSup);
+
+  const tarjetaEquipos = el(`
+    <div class="tarjeta">
+      <h2>2. Elige el equipo a revisar</h2>
+      <div class="grilla-zonas" id="grilla-equipos"></div>
+    </div>
+  `);
+  const grilla = tarjetaEquipos.querySelector("#grilla-equipos");
+  EQUIPOS.forEach((equipo, idx) => {
+    const info = ultimoEstadoEquipo(equipo.nombre, registros);
+    let claseBadge = "badge-gris";
+    if (info){ claseBadge = info.estado === "Malo" ? "badge-rojo" : "badge-verde"; }
+    const b = el(`<button class="zona-btn"><span class="badge ${claseBadge}"></span>${equipo.nombre}</button>`);
+    b.addEventListener("click", () => {
+      if (!estadoEquipos.supervisor){
+        mostrarToast("Primero selecciona tu nombre", true);
+        return;
+      }
+      estadoEquipos.equipoIndex = idx;
+      estadoEquipos.respuestas = {};
+      estadoEquipos.pantalla = "equipo";
+      renderEquipos();
+    });
+    grilla.appendChild(b);
+  });
+  main.appendChild(tarjetaEquipos);
+}
+
+function vistaEquipoChecklist(){
+  const equipo = EQUIPOS[estadoEquipos.equipoIndex];
+  const cont = el(`<div></div>`);
+
+  const volver = el(`<button class="volver">‹ Cambiar de equipo</button>`);
+  volver.addEventListener("click", () => {
+    estadoEquipos.pantalla = "inicio";
+    renderEquipos();
+  });
+  cont.appendChild(volver);
+
+  const tarjeta = el(`
+    <div class="tarjeta">
+      <h2>${equipo.nombre}</h2>
+      <p style="font-size:12px;color:var(--gris);margin-top:-6px;">Supervisor: ${estadoEquipos.supervisor}</p>
+      <div id="lista-puntos-equipo"></div>
+    </div>
+  `);
+  const listaPuntos = tarjeta.querySelector("#lista-puntos-equipo");
+
+  equipo.puntos.forEach((textoPunto, idx) => {
+    if (!estadoEquipos.respuestas[idx]){
+      estadoEquipos.respuestas[idx] = { estado: null, observacion: "", fotos: [] };
+    }
+    listaPuntos.appendChild(vistaPuntoEquipo(textoPunto, idx));
+  });
+
+  cont.appendChild(tarjeta);
+
+  const btnGuardar = el(`<button class="boton" id="btn-guardar-equipo">Guardar revisión de este equipo</button>`);
+  btnGuardar.addEventListener("click", enviarChecklistEquipo);
+  cont.appendChild(btnGuardar);
+
+  return cont;
+}
+
+function vistaPuntoEquipo(textoPunto, idx){
+  const resp = estadoEquipos.respuestas[idx];
+  const item = el(`
+    <div class="punto" id="punto-equipo-${idx}">
+      <p class="texto">${textoPunto}</p>
+      <div class="switch-estado">
+        <button data-val="Bueno" class="${resp.estado==="Bueno"?"sel-cumple":""}">✔ Bueno</button>
+        <button data-val="Malo" class="${resp.estado==="Malo"?"sel-no":""}">✘ Malo</button>
+      </div>
+      <div class="detalle-no ${resp.estado === "Malo" ? "" : "oculto"}" id="detalle-equipo-${idx}">
+        <label class="campo">¿Qué está mal? (observación)</label>
+        <textarea rows="2" placeholder="Ej: Motorreductor con ruido anormal" id="obs-equipo-${idx}">${resp.observacion}</textarea>
+        <label class="campo">Foto de evidencia (obligatoria)</label>
+        <label class="input-foto">📷 Tomar / subir foto
+          <input type="file" accept="image/*" capture="environment" multiple id="foto-equipo-${idx}">
+        </label>
+        <div class="fotos-preview" id="preview-equipo-${idx}"></div>
+      </div>
+    </div>
+  `);
+
+  item.querySelectorAll(".switch-estado button").forEach(b => {
+    b.addEventListener("click", () => {
+      resp.estado = b.dataset.val;
+      const nuevoPunto = vistaPuntoEquipo(textoPunto, idx);
+      item.replaceWith(nuevoPunto);
+    });
+  });
+
+  const obsInput = item.querySelector(`#obs-equipo-${idx}`);
+  if (obsInput){
+    obsInput.addEventListener("input", (e) => { resp.observacion = e.target.value; });
+  }
+
+  const fotoInput = item.querySelector(`#foto-equipo-${idx}`);
+  if (fotoInput){
+    fotoInput.addEventListener("change", async (e) => {
+      const archivos = Array.from(e.target.files);
+      for (const archivo of archivos){
+        try{
+          const dataUrl = await comprimirImagen(archivo);
+          resp.fotos.push(dataUrl);
+        }catch(err){ console.error(err); }
+      }
+      e.target.value = "";
+      pintarPreviewFotosEquipo(idx);
+    });
+  }
+  pintarPreviewFotosEquipoEn(item, idx);
+
+  return item;
+}
+
+function pintarPreviewFotosEquipo(idx){
+  const item = document.getElementById(`punto-equipo-${idx}`);
+  if (item) pintarPreviewFotosEquipoEn(item, idx);
+}
+
+function pintarPreviewFotosEquipoEn(item, idx){
+  const cont = item.querySelector(`#preview-equipo-${idx}`);
+  if (!cont) return;
+  const resp = estadoEquipos.respuestas[idx];
+  cont.innerHTML = "";
+  resp.fotos.forEach((foto, i) => {
+    const mini = el(`
+      <div class="foto-mini">
+        <img src="${foto}">
+        <button class="quitar" type="button">✕</button>
+      </div>
+    `);
+    mini.querySelector(".quitar").addEventListener("click", () => {
+      resp.fotos.splice(i, 1);
+      pintarPreviewFotosEquipoEn(item, idx);
+    });
+    cont.appendChild(mini);
+  });
+}
+
+async function enviarChecklistEquipo(){
+  const equipo = EQUIPOS[estadoEquipos.equipoIndex];
+  const respuestas = estadoEquipos.respuestas;
+
+  for (let idx = 0; idx < equipo.puntos.length; idx++){
+    const r = respuestas[idx];
+    if (!r.estado){
+      mostrarToast("Falta marcar Bueno / Malo en: " + equipo.puntos[idx], true);
+      return;
+    }
+    if (r.estado === "Malo" && r.fotos.length === 0){
+      mostrarToast("Sube al menos una foto en: " + equipo.puntos[idx], true);
+      return;
+    }
+    if (r.estado === "Malo" && !r.observacion.trim()){
+      mostrarToast("Escribe una observación en: " + equipo.puntos[idx], true);
+      return;
+    }
+  }
+
+  if (SUPABASE_URL.indexOf("PON_AQUI") === 0 || SUPABASE_ANON_KEY.indexOf("PON_AQUI") === 0){
+    mostrarToast("Falta configurar las llaves de Supabase", true);
+    return;
+  }
+
+  const btn = document.getElementById("btn-guardar-equipo");
+  btn.disabled = true;
+  btn.textContent = "Guardando...";
+
+  const items = equipo.puntos.map((texto, idx) => ({
+    punto: texto,
+    estado: respuestas[idx].estado,
+    observacion: respuestas[idx].observacion,
+    fotos: respuestas[idx].fotos
+  }));
+
+  try{
+    await crearLoteEquipo(equipo.nombre, estadoEquipos.supervisor, items);
+    mostrarToast("Revisión guardada ✅");
+    cacheEquipos = null;
+    estadoEquipos.pantalla = "inicio";
+    estadoEquipos.equipoIndex = null;
+    estadoEquipos.respuestas = {};
+    renderEquipos();
+  } catch(err){
+    mostrarToast("Error al guardar: " + err.message, true);
+    btn.disabled = false;
+    btn.textContent = "Guardar revisión de este equipo";
+  }
 }
 
 /* ============================================================
